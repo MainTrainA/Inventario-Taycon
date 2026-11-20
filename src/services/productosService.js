@@ -64,3 +64,19 @@ export const actualizarStockTienda = async (inventarioId, nuevoStock) => {
 
   if (error) throw error;
 };
+
+export const eliminarProducto = async (productoId) => {
+  const { error: invError } = await supabase
+    .from('inventario_tienda')
+    .delete()
+    .eq('producto_id', productoId);
+
+  if (invError) throw invError;
+
+  const { error: prodError } = await supabase
+    .from('productos')
+    .delete()
+    .eq('id', productoId);
+
+  if (prodError) throw prodError;
+};

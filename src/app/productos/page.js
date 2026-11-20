@@ -5,6 +5,7 @@ import {
   obtenerTiendas,
   obtenerCatalogoConStock,
   actualizarStockTienda,
+  eliminarProducto,
 } from '@/services/productosService';
 import { formatearMoneda } from '@/lib/formatters';
 import FormularioProducto from '@/components/productos/FormularioProducto';
@@ -39,6 +40,23 @@ export default function PaginaProductos() {
     const nuevoStock = Math.max(0, stockActual + delta);
     await actualizarStockTienda(inventarioId, nuevoStock);
     cargarDatos();
+  };
+
+  const handleEliminar = async (prod) => {
+    const confirmar = window.confirm(
+      `¿Eliminar [${prod.codigo}] ${prod.nombre} del catálogo y de todas las tiendas?`
+    );
+    if (!confirmar) return;
+
+    try {
+      await eliminarProducto(prod.id);
+      cargarDatos();
+    } catch (error) {
+      alert(
+        'No se pudo eliminar el producto (puede que ya tenga ventas registradas): ' +
+          error.message
+      );
+    }
   };
 
   const productosFiltrados = productos.filter((prod) => {
@@ -112,6 +130,7 @@ export default function PaginaProductos() {
                       {t.nombre}
                     </th>
                   ))}
+                  <th className="py-3.5 px-4 font-bold text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-sm">
@@ -174,6 +193,15 @@ export default function PaginaProductos() {
                         </td>
                       );
                     })}
+                    <td className="py-3.5 px-4 text-center">
+                      <button
+                        onClick={() => handleEliminar(prod)}
+                        title="Eliminar herramienta del catálogo"
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 bg-red-950/50 hover:bg-red-900/70 border border-red-800/60 transition cursor-pointer"
+                      >
+                        Eliminar
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
