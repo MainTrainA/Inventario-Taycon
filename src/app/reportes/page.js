@@ -26,6 +26,12 @@ export default function PaginaReportes() {
   const [ventas, setVentas] = useState([]);
   const [cargando, setCargando] = useState(true);
 
+  // Estados para el Ranking de Productos Estrella (Día / Semana / Mes / Año)
+  const [periodoTop, setPeriodoTop] = useState('SEMANA');
+  const [criterioTop, setCriterioTop] = useState('UNIDADES'); // 'UNIDADES' | 'GANANCIA'
+  const [ventasPeriodo, setVentasPeriodo] = useState([]);
+  const [cargandoTop, setCargandoTop] = useState(true);
+
   const cargarReporte = async () => {
     setCargando(true);
     try {
@@ -60,11 +66,105 @@ export default function PaginaReportes() {
     }
   };
 
+  const cargarRankingPeriodo = async () => {
+    setCargandoTop(true);
+    try {
+      const ahora = new Date();
+      let inicioPeriodo = new Date();
+
+      if (periodoTop === 'DIA') {
+        inicioPeriodo.setHours(0, 0, 0, 0);
+      } else if (periodoTop === 'SEMANA') {
+        const diaSemana = ahora.getDay(); // 0 = Domingo, 1 = Lunes...
+        const diffLunes = diaSemana === 0 ? 6 : diaSemana - 1;
+        inicioPeriodo = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - diffLunes, 0, 0, 0, 0);
+      } else if (periodoTop === 'MES') {
+        inicioPeriodo = new Date(ahora.getFullYear(), ahora.getMonth(), 1, 0, 0, 0, 0);
+      } else if (periodoTop === 'ANIO') {
+        inicioPeriodo = new Date(ahora.getFullYear(), 0, 1, 0, 0, 0, 0);
+      }
+
+      let query = supabase
+        .from('ventas')
+        .select('codigo_producto, nombre_producto, cantidad, total_venta, ganancia_neta, tienda_id')
+        .gte('fecha_venta', inicioPeriodo.toISOString())
+        .lte('fecha_venta', ahora.toISOString());
+
+      if (filtroTienda !== 'TODAS') {
+        query = query.eq('tienda_id', filtroTienda);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setVentasPeriodo(data || []);
+    } catch (error) {
+      console.error('Error cargando ranking de productos:', error);
+    } finally {
+      setCargandoTop(false);
+    }
+  };
+
   useEffect(() => {
     cargarReporte();
   }, [fechaSeleccionada, filtroTienda]);
 
-  // Agrupar datos por código de herramienta para la gráfica de barras animada
+  useEffect(() => {
+    cargarRankingPeriodo();
+  }, [periodoTop, filtroTienda]);
+
+  // Calcular Ranking con soporte para múltiples productos empatados en el Top
+  const rankingProductos = useMemo(() => {
+    const mapa = {};
+    ventasPeriodo.forEach((v) => {
+      if (!mapa[v.codigo_producto]) {
+        mapa[v.codigo_producto] = {
+          codigo: v.codigo_producto,
+          nombre: v.nombre_producto,
+          unidades: 0,
+          vendido: 0,
+          ganancia: 0,
+        };
+      }
+      mapa[v.codigo_producto].unidades += parseInt(v.cantidad, 10) || 0;
+      mapa[v.codigo_producto].vendido += parseFloat(v.total_venta) || 0;
+      mapa[v.codigo_producto].ganancia += parseFloat(v.ganancia_neta) || 0;
+    });
+
+    const lista = Object.values(mapa).sort((a, b) => {
+      if (criterioTop === 'UNIDADES') {
+        return b.unidades - a.unidades || b.ganancia - a.ganancia;
+      }
+      return b.ganancia - a.ganancia || b.unidades - a.unidades;
+    });
+
+    if (lista.length === 0) return { items: [], lideres: [], maxValor: 0 };
+
+    const getValor = (item) => (criterioTop === 'UNIDADES' ? item.unidades : item.ganancia);
+    const maxValor = Math.max(...lista.map(getValor), 1);
+    const valorTop1 = getValor(lista[0]);
+
+    // Asignar puesto real respetando empates (ej: dos productos empatados son ambos #1)
+    let puestoActual = 1;
+    const itemsConRango = lista.slice(0, 10).map((item, index) => {
+      const val = getValor(item);
+      if (index > 0 && val < getValor(lista[index - 1])) {
+        puestoActual = index + 1;
+      }
+      const esLider = val === valorTop1 && val > 0;
+      const porcentajeBarra = Math.max(6, Math.round((val / maxValor) * 100));
+      return {
+        ...item,
+        puesto: puestoActual,
+        esLider,
+        porcentajeBarra,
+      };
+    });
+
+    const lideres = itemsConRango.filter((i) => i.esLider);
+    return { items: itemsConRango, lideres, maxValor };
+  }, [ventasPeriodo, criterioTop]);
+
+  // Agrupar datos por código de herramienta para la gráfica de barras animada del día
   const datosGraficaProductos = useMemo(() => {
     const mapa = {};
     ventas.forEach((v) => {
@@ -105,6 +205,13 @@ export default function PaginaReportes() {
   const totalGanancia = ventas.reduce((acc, v) => acc + parseFloat(v.ganancia_neta), 0);
   const totalUnidades = ventas.reduce((acc, v) => acc + parseInt(v.cantidad, 10), 0);
 
+  const etiquetasPeriodo = {
+    DIA: 'Hoy',
+    SEMANA: 'Esta Semana',
+    MES: 'Este Mes',
+    ANIO: 'Este Año',
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
@@ -112,15 +219,15 @@ export default function PaginaReportes() {
           Reporte Diario y Analítica Visual
         </h1>
         <p className="text-sm text-slate-400 mt-1">
-          Gráficas animadas de rendimiento por herramienta, sucursal y ganancia neta.
+          Ranking de herramientas estrella, gráficas animadas de rendimiento y detalle por sucursal.
         </p>
       </div>
 
-      {/* Filtros */}
+      {/* Filtros Principales */}
       <div className="bg-[#111827] p-5 rounded-2xl shadow-xl border border-slate-800 mb-8 grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
           <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-            Fecha a Consultar
+            Fecha a Consultar (Detalle Diario)
           </label>
           <input
             type="date"
@@ -146,6 +253,203 @@ export default function PaginaReportes() {
               </option>
             ))}
           </select>
+        </div>
+      </div>
+
+      {/* APARTADO ESTÉTICO: PRODUCTOS MÁS VENDIDOS (DÍA / SEMANA / MES / AÑO) */}
+      <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden mb-8">
+        <div className="p-6 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-[#131c31] to-slate-900 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <span className="text-xl">🏆</span>
+              <h2 className="text-lg font-extrabold text-white tracking-tight">
+                Herramientas Más Vendidas — {etiquetasPeriodo[periodoTop]}
+              </h2>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Identifica tus productos estrella y empates en rotación o ganancia neta.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Selector de Período */}
+            <div className="inline-flex bg-slate-950/90 p-1 rounded-xl border border-slate-800">
+              {[
+                { id: 'DIA', label: 'Hoy' },
+                { id: 'SEMANA', label: 'Semana' },
+                { id: 'MES', label: 'Mes' },
+                { id: 'ANIO', label: 'Año' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setPeriodoTop(tab.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    periodoTop === tab.id
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Selector de Criterio */}
+            <div className="inline-flex bg-slate-950/90 p-1 rounded-xl border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setCriterioTop('UNIDADES')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  criterioTop === 'UNIDADES'
+                    ? 'bg-sky-500 text-slate-950'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Por Cantidad
+              </button>
+              <button
+                type="button"
+                onClick={() => setCriterioTop('GANANCIA')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  criterioTop === 'GANANCIA'
+                    ? 'bg-emerald-500 text-slate-950'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Por Ganancia
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6">
+          {cargandoTop ? (
+            <div className="py-10 text-center text-slate-400 text-sm">
+              Calculando ranking de ventas...
+            </div>
+          ) : rankingProductos.items.length === 0 ? (
+            <div className="py-10 text-center">
+              <p className="text-slate-300 font-semibold">
+                Aún no hay ventas registradas en {etiquetasPeriodo[periodoTop].toLowerCase()}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                Prueba cambiando el período a Mes o Año para ver el historial acumulado.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Tarjetas Destacadas para los Líderes (soporta múltiples productos empatados en #1) */}
+              {rankingProductos.lideres.length > 0 && (
+                <div className="mb-6">
+                  <div className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-3 flex items-center gap-2">
+                    <span>⭐</span>
+                    <span>
+                      {rankingProductos.lideres.length > 1
+                        ? `Productos Estrella Empatados en 1.º Lugar (${rankingProductos.lideres.length})`
+                        : 'Producto Estrella #1 del Período'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {rankingProductos.lideres.map((lider) => (
+                      <div
+                        key={lider.codigo}
+                        className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/15 via-slate-900 to-slate-950 border border-amber-500/40 shadow-lg flex flex-col justify-between"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-950 border border-amber-500/40 text-amber-400 font-mono font-bold text-xs">
+                            {lider.codigo}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[11px] uppercase">
+                            #1 LÍDER
+                          </span>
+                        </div>
+
+                        <div className="font-extrabold text-white text-base mt-3 line-clamp-2">
+                          {lider.nombre}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-800/80 text-xs">
+                          <div>
+                            <span className="text-slate-400 block">Unidades</span>
+                            <span className="text-white font-extrabold text-sm">
+                              {lider.unidades} unid.
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Ganancia Neta</span>
+                            <span className="text-emerald-400 font-extrabold text-sm">
+                              {formatearMoneda(lider.ganancia)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Barras Horizontales Proporcionales (Top 10) */}
+              <div className="space-y-3.5">
+                {rankingProductos.items.map((item) => (
+                  <div
+                    key={item.codigo}
+                    className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700 transition"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs ${
+                            item.puesto === 1
+                              ? 'bg-amber-500 text-slate-950'
+                              : item.puesto === 2
+                              ? 'bg-slate-300 text-slate-950'
+                              : item.puesto === 3
+                              ? 'bg-orange-700 text-white'
+                              : 'bg-slate-800 text-slate-300'
+                          }`}
+                        >
+                          #{item.puesto}
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-slate-900 border border-amber-500/30 text-amber-400 font-mono font-bold text-xs">
+                          {item.codigo}
+                        </span>
+                        <span className="font-bold text-slate-100 text-sm">{item.nombre}</span>
+                      </div>
+
+                      <div className="flex items-center gap-4 text-xs sm:text-sm">
+                        <span className="font-extrabold text-sky-400">
+                          {item.unidades} {item.unidades === 1 ? 'unidad' : 'unidades'}
+                        </span>
+                        <span className="text-slate-600">|</span>
+                        <span className="text-slate-300 font-semibold">
+                          Vendido: {formatearMoneda(item.vendido)}
+                        </span>
+                        <span className="text-slate-600 hidden sm:inline">|</span>
+                        <span className="font-extrabold text-emerald-400 hidden sm:inline">
+                          +{formatearMoneda(item.ganancia)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Barra visual de progreso */}
+                    <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden">
+                      <div
+                        style={{ width: `${item.porcentajeBarra}%` }}
+                        className={`h-full rounded-full transition-all duration-700 ${
+                          item.esLider
+                            ? 'bg-gradient-to-r from-amber-400 to-orange-500'
+                            : criterioTop === 'UNIDADES'
+                            ? 'bg-gradient-to-r from-sky-500 to-indigo-500'
+                            : 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                        }`}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
