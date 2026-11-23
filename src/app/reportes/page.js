@@ -26,9 +26,9 @@ export default function PaginaReportes() {
   const [ventas, setVentas] = useState([]);
   const [cargando, setCargando] = useState(true);
 
-  // Estados para el Ranking de Productos Estrella (Día / Semana / Mes / Año)
-  const [periodoTop, setPeriodoTop] = useState('SEMANA');
-  const [criterioTop, setCriterioTop] = useState('UNIDADES'); // 'UNIDADES' | 'GANANCIA'
+  // Estados para Analítica por Período (Día / Semana / Mes / Año)
+  const [periodoTop, setPeriodoTop] = useState('MES');
+  const [criterioTop, setCriterioTop] = useState('UNIDADES');
   const [ventasPeriodo, setVentasPeriodo] = useState([]);
   const [cargandoTop, setCargandoTop] = useState(true);
 
@@ -75,7 +75,7 @@ export default function PaginaReportes() {
       if (periodoTop === 'DIA') {
         inicioPeriodo.setHours(0, 0, 0, 0);
       } else if (periodoTop === 'SEMANA') {
-        const diaSemana = ahora.getDay(); // 0 = Domingo, 1 = Lunes...
+        const diaSemana = ahora.getDay();
         const diffLunes = diaSemana === 0 ? 6 : diaSemana - 1;
         inicioPeriodo = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - diffLunes, 0, 0, 0, 0);
       } else if (periodoTop === 'MES') {
@@ -86,7 +86,16 @@ export default function PaginaReportes() {
 
       let query = supabase
         .from('ventas')
-        .select('codigo_producto, nombre_producto, cantidad, total_venta, ganancia_neta, tienda_id')
+        .select(`
+          codigo_producto,
+          nombre_producto,
+          cantidad,
+          total_venta,
+          ganancia_neta,
+          tienda_id,
+          fecha_venta,
+          tiendas ( nombre )
+        `)
         .gte('fecha_venta', inicioPeriodo.toISOString())
         .lte('fecha_venta', ahora.toISOString());
 
@@ -112,7 +121,66 @@ export default function PaginaReportes() {
     cargarRankingPeriodo();
   }, [periodoTop, filtroTienda]);
 
-  // Calcular Ranking con soporte para múltiples productos empatados en el Top
+  // 1. Ganancia y Total Vendido por cada Tienda en el período seleccionado
+  const resumenPorTienda = useMemo(() => {
+    const mapa = {};
+    tiendas.forEach((t) => {
+      mapa[t.nombre] = { nombre: t.nombre, vendido: 0, ganancia: 0, operaciones: 0 };
+    });
+
+    ventasPeriodo.forEach((v) => {
+      const nombreT = v.tiendas?.nombre || 'Sucursal';
+      if (!mapa[nombreT]) {
+        mapa[nombreT] = { nombre: nombreT, vendido: 0, ganancia: 0, operaciones: 0 };
+      }
+      mapa[nombreT].vendido += parseFloat(v.total_venta) || 0;
+      mapa[nombreT].ganancia += parseFloat(v.ganancia_neta) || 0;
+      mapa[nombreT].operaciones += 1;
+    });
+
+    return Object.values(mapa);
+  }, [ventasPeriodo, tiendas]);
+
+  // 2. Evolución de ventas y Mejor Día / Mes del período
+  const analisisTiempo = useMemo(() => {
+    const mapa = {};
+    const mesesNombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+    ventasPeriodo.forEach((v) => {
+      const f = new Date(v.fecha_venta);
+      let clave = '';
+      let etiqueta = '';
+
+      if (periodoTop === 'DIA') {
+        const hora = String(f.getHours()).padStart(2, '0');
+        clave = hora;
+        etiqueta = `${hora}:00`;
+      } else if (periodoTop === 'ANIO') {
+        const m = f.getMonth();
+        clave = String(m).padStart(2, '0');
+        etiqueta = mesesNombres[m];
+      } else {
+        clave = f.toLocaleDateString('en-CA');
+        etiqueta = `${String(f.getDate()).padStart(2, '0')}/${String(f.getMonth() + 1).padStart(2, '0')}`;
+      }
+
+      if (!mapa[clave]) {
+        mapa[clave] = { clave, etiqueta, Vendido: 0, Ganancia: 0, unidades: 0 };
+      }
+      mapa[clave].Vendido += parseFloat(v.total_venta) || 0;
+      mapa[clave].Ganancia += parseFloat(v.ganancia_neta) || 0;
+      mapa[clave].unidades += parseInt(v.cantidad, 10) || 0;
+    });
+
+    const serie = Object.values(mapa).sort((a, b) => a.clave.localeCompare(b.clave));
+    const mejor = serie.length > 0
+      ? serie.reduce((max, item) => (item.Vendido > max.Vendido ? item : max), serie[0])
+      : null;
+
+    return { serie, mejor };
+  }, [ventasPeriodo, periodoTop]);
+
+  // 3. Ranking de Productos Más Vendidos (con soporte de empates)
   const rankingProductos = useMemo(() => {
     const mapa = {};
     ventasPeriodo.forEach((v) => {
@@ -137,13 +205,12 @@ export default function PaginaReportes() {
       return b.ganancia - a.ganancia || b.unidades - a.unidades;
     });
 
-    if (lista.length === 0) return { items: [], lideres: [], maxValor: 0 };
+    if (lista.length === 0) return { items: [], lideres: [] };
 
     const getValor = (item) => (criterioTop === 'UNIDADES' ? item.unidades : item.ganancia);
     const maxValor = Math.max(...lista.map(getValor), 1);
     const valorTop1 = getValor(lista[0]);
 
-    // Asignar puesto real respetando empates (ej: dos productos empatados son ambos #1)
     let puestoActual = 1;
     const itemsConRango = lista.slice(0, 10).map((item, index) => {
       const val = getValor(item);
@@ -152,54 +219,11 @@ export default function PaginaReportes() {
       }
       const esLider = val === valorTop1 && val > 0;
       const porcentajeBarra = Math.max(6, Math.round((val / maxValor) * 100));
-      return {
-        ...item,
-        puesto: puestoActual,
-        esLider,
-        porcentajeBarra,
-      };
+      return { ...item, puesto: puestoActual, esLider, porcentajeBarra };
     });
 
-    const lideres = itemsConRango.filter((i) => i.esLider);
-    return { items: itemsConRango, lideres, maxValor };
+    return { items: itemsConRango, lideres: itemsConRango.filter((i) => i.esLider) };
   }, [ventasPeriodo, criterioTop]);
-
-  // Agrupar datos por código de herramienta para la gráfica de barras animada del día
-  const datosGraficaProductos = useMemo(() => {
-    const mapa = {};
-    ventas.forEach((v) => {
-      if (!mapa[v.codigo_producto]) {
-        mapa[v.codigo_producto] = {
-          codigo: v.codigo_producto,
-          nombre: v.nombre_producto,
-          Vendido: 0,
-          Ganancia: 0,
-          unidades: 0,
-        };
-      }
-      mapa[v.codigo_producto].Vendido += parseFloat(v.total_venta) || 0;
-      mapa[v.codigo_producto].Ganancia += parseFloat(v.ganancia_neta) || 0;
-      mapa[v.codigo_producto].unidades += parseInt(v.cantidad, 10) || 0;
-    });
-    return Object.values(mapa);
-  }, [ventas]);
-
-  // Comparativa animada entre Tienda 1 y Tienda 2
-  const datosGraficaTiendas = useMemo(() => {
-    const mapa = {
-      'Tienda 1': { tienda: 'Tienda 1', Ingresos: 0, Ganancia: 0 },
-      'Tienda 2': { tienda: 'Tienda 2', Ingresos: 0, Ganancia: 0 },
-    };
-    ventas.forEach((v) => {
-      const nombreT = v.tiendas?.nombre || 'Tienda 1';
-      if (!mapa[nombreT]) {
-        mapa[nombreT] = { tienda: nombreT, Ingresos: 0, Ganancia: 0 };
-      }
-      mapa[nombreT].Ingresos += parseFloat(v.total_venta) || 0;
-      mapa[nombreT].Ganancia += parseFloat(v.ganancia_neta) || 0;
-    });
-    return Object.values(mapa);
-  }, [ventas]);
 
   const totalIngresos = ventas.reduce((acc, v) => acc + parseFloat(v.total_venta), 0);
   const totalGanancia = ventas.reduce((acc, v) => acc + parseFloat(v.ganancia_neta), 0);
@@ -216,27 +240,15 @@ export default function PaginaReportes() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-          Reporte Diario y Analítica Visual
+          Reportes y Control de Ganancias
         </h1>
         <p className="text-sm text-slate-400 mt-1">
-          Ranking de herramientas estrella, gráficas animadas de rendimiento y detalle por sucursal.
+          Control total de ventas por tienda, mejores días/meses y productos más vendidos.
         </p>
       </div>
 
-      {/* Filtros Principales */}
+      {/* Filtros */}
       <div className="bg-[#111827] p-5 rounded-2xl shadow-xl border border-slate-800 mb-8 grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div>
-          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-            Fecha a Consultar (Detalle Diario)
-          </label>
-          <input
-            type="date"
-            value={fechaSeleccionada}
-            onChange={(e) => setFechaSeleccionada(e.target.value)}
-            className="w-full px-3.5 py-2.5 bg-slate-950/90 border border-slate-700 rounded-xl font-semibold text-white focus:outline-none focus:ring-2 focus:ring-amber-500 transition [color-scheme:dark]"
-          />
-        </div>
-
         <div>
           <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
             Filtrar por Sucursal
@@ -254,398 +266,241 @@ export default function PaginaReportes() {
             ))}
           </select>
         </div>
+
+        <div>
+          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+            Período de Análisis (Gráficas y Top)
+          </label>
+          <div className="grid grid-cols-4 gap-2 bg-slate-950/90 p-1.5 rounded-xl border border-slate-700">
+            {[
+              { id: 'DIA', label: 'Hoy' },
+              { id: 'SEMANA', label: 'Semana' },
+              { id: 'MES', label: 'Mes' },
+              { id: 'ANIO', label: 'Año' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setPeriodoTop(tab.id)}
+                className={`py-2 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  periodoTop === tab.id
+                    ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* APARTADO ESTÉTICO: PRODUCTOS MÁS VENDIDOS (DÍA / SEMANA / MES / AÑO) */}
-      <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden mb-8">
-        <div className="p-6 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-[#131c31] to-slate-900 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <span className="text-xl">🏆</span>
-              <h2 className="text-lg font-extrabold text-white tracking-tight">
-                Herramientas Más Vendidas — {etiquetasPeriodo[periodoTop]}
-              </h2>
+      {/* 1. CUÁNTO VENDIÓ Y GANÓ CADA TIENDA EN EL PERÍODO */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+        {resumenPorTienda.map((t, idx) => (
+          <div
+            key={t.nombre}
+            className={`bg-[#111827] p-5 rounded-2xl shadow-lg border border-slate-800 border-l-4 ${
+              idx === 0 ? 'border-l-sky-500' : 'border-l-violet-500'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                {t.nombre} — {etiquetasPeriodo[periodoTop]}
+              </span>
+              <span className="text-xs text-slate-500">{t.operaciones} ventas</span>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Identifica tus productos estrella y empates en rotación o ganancia neta.
+            <div className="text-2xl font-extrabold text-white mt-2">
+              {formatearMoneda(t.vendido)}
+            </div>
+            <div className="text-sm font-bold text-emerald-400 mt-1">
+              Ganancia neta: {formatearMoneda(t.ganancia)}
+            </div>
+          </div>
+        ))}
+
+        {/* Tarjeta: Mejor Día / Mes / Hora del período */}
+        <div className="bg-[#111827] p-5 rounded-2xl shadow-lg border border-slate-800 border-l-4 border-l-amber-500">
+          <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+            {periodoTop === 'DIA'
+              ? 'Hora con Más Ventas'
+              : periodoTop === 'ANIO'
+              ? 'Mes con Más Ventas'
+              : 'Día con Más Ventas'}
+          </div>
+          {analisisTiempo.mejor ? (
+            <>
+              <div className="text-2xl font-extrabold text-white mt-2">
+                {analisisTiempo.mejor.etiqueta}
+              </div>
+              <div className="text-sm font-bold text-emerald-400 mt-1">
+                {formatearMoneda(analisisTiempo.mejor.Vendido)} ({analisisTiempo.mejor.unidades} unid.)
+              </div>
+            </>
+          ) : (
+            <div className="text-sm text-slate-500 mt-3">Sin ventas en este período</div>
+          )}
+        </div>
+      </div>
+
+      {/* 2. GRÁFICA: QUÉ DÍA / MES SE VENDIÓ MÁS */}
+      <div className="bg-[#111827] p-6 rounded-2xl shadow-xl border border-slate-800 mb-8">
+        <div className="mb-4">
+          <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+            Evolución de Ventas y Ganancias — {etiquetasPeriodo[periodoTop]}
+          </h2>
+          <p className="text-xs text-slate-400">
+            Compara rápidamente qué {periodoTop === 'DIA' ? 'hora' : periodoTop === 'ANIO' ? 'mes' : 'día'} tuvo mayor facturación y ganancia neta.
+          </p>
+        </div>
+
+        {cargandoTop ? (
+          <div className="h-64 flex items-center justify-center text-slate-400 text-sm">
+            Cargando gráfica...
+          </div>
+        ) : analisisTiempo.serie.length === 0 ? (
+          <div className="h-48 flex items-center justify-center text-slate-500 text-sm">
+            No hay ventas registradas en {etiquetasPeriodo[periodoTop].toLowerCase()}.
+          </div>
+        ) : (
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={analisisTiempo.serie} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis
+                  dataKey="etiqueta"
+                  stroke="#94a3b8"
+                  tick={{ fill: '#f8fafc', fontWeight: 'bold', fontSize: 12 }}
+                />
+                <YAxis stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  cursor={{ fill: '#1e293b', opacity: 0.45 }}
+                  contentStyle={{
+                    backgroundColor: '#0f172a',
+                    borderColor: '#334155',
+                    borderRadius: '12px',
+                    color: '#f8fafc',
+                  }}
+                  formatter={(value) => formatearMoneda(value)}
+                />
+                <Legend />
+                <Bar dataKey="Vendido" name="Total Vendido (Bs)" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="Ganancia" name="Ganancia Neta (Bs)" fill="#10b981" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* 3. RANKING DE PRODUCTOS MÁS VENDIDOS */}
+      <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden mb-8">
+        <div className="p-6 border-b border-slate-800 bg-slate-900/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-extrabold text-white">
+              🏆 Productos Más Vendidos — {etiquetasPeriodo[periodoTop]}
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Ordenados por cantidad vendida o ganancia neta generada.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Selector de Período */}
-            <div className="inline-flex bg-slate-950/90 p-1 rounded-xl border border-slate-800">
-              {[
-                { id: 'DIA', label: 'Hoy' },
-                { id: 'SEMANA', label: 'Semana' },
-                { id: 'MES', label: 'Mes' },
-                { id: 'ANIO', label: 'Año' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setPeriodoTop(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    periodoTop === tab.id
-                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-sm'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Selector de Criterio */}
-            <div className="inline-flex bg-slate-950/90 p-1 rounded-xl border border-slate-800">
-              <button
-                type="button"
-                onClick={() => setCriterioTop('UNIDADES')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  criterioTop === 'UNIDADES'
-                    ? 'bg-sky-500 text-slate-950'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Por Cantidad
-              </button>
-              <button
-                type="button"
-                onClick={() => setCriterioTop('GANANCIA')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  criterioTop === 'GANANCIA'
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Por Ganancia
-              </button>
-            </div>
+          <div className="inline-flex bg-slate-950/90 p-1 rounded-xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => setCriterioTop('UNIDADES')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                criterioTop === 'UNIDADES' ? 'bg-sky-500 text-slate-950' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Por Cantidad
+            </button>
+            <button
+              type="button"
+              onClick={() => setCriterioTop('GANANCIA')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                criterioTop === 'GANANCIA' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Por Ganancia
+            </button>
           </div>
         </div>
 
         <div className="p-6">
           {cargandoTop ? (
-            <div className="py-10 text-center text-slate-400 text-sm">
-              Calculando ranking de ventas...
-            </div>
+            <div className="py-8 text-center text-slate-400 text-sm">Calculando ranking...</div>
           ) : rankingProductos.items.length === 0 ? (
-            <div className="py-10 text-center">
-              <p className="text-slate-300 font-semibold">
-                Aún no hay ventas registradas en {etiquetasPeriodo[periodoTop].toLowerCase()}
-              </p>
-              <p className="text-xs text-slate-500 mt-1">
-                Prueba cambiando el período a Mes o Año para ver el historial acumulado.
-              </p>
+            <div className="py-8 text-center text-slate-500 text-sm">
+              Aún no hay productos vendidos en {etiquetasPeriodo[periodoTop].toLowerCase()}.
             </div>
           ) : (
-            <>
-              {/* Tarjetas Destacadas para los Líderes (soporta múltiples productos empatados en #1) */}
-              {rankingProductos.lideres.length > 0 && (
-                <div className="mb-6">
-                  <div className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-3 flex items-center gap-2">
-                    <span>⭐</span>
-                    <span>
-                      {rankingProductos.lideres.length > 1
-                        ? `Productos Estrella Empatados en 1.º Lugar (${rankingProductos.lideres.length})`
-                        : 'Producto Estrella #1 del Período'}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {rankingProductos.lideres.map((lider) => (
-                      <div
-                        key={lider.codigo}
-                        className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/15 via-slate-900 to-slate-950 border border-amber-500/40 shadow-lg flex flex-col justify-between"
+            <div className="space-y-3">
+              {rankingProductos.items.map((item) => (
+                <div key={item.codigo} className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs ${
+                          item.puesto === 1 ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'
+                        }`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="px-2.5 py-1 rounded-lg bg-slate-950 border border-amber-500/40 text-amber-400 font-mono font-bold text-xs">
-                            {lider.codigo}
-                          </span>
-                          <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[11px] uppercase">
-                            #1 LÍDER
-                          </span>
-                        </div>
+                        #{item.puesto}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-slate-900 border border-amber-500/30 text-amber-400 font-mono font-bold text-xs">
+                        {item.codigo}
+                      </span>
+                      <span className="font-bold text-slate-100 text-sm">{item.nombre}</span>
+                    </div>
 
-                        <div className="font-extrabold text-white text-base mt-3 line-clamp-2">
-                          {lider.nombre}
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-slate-800/80 text-xs">
-                          <div>
-                            <span className="text-slate-400 block">Unidades</span>
-                            <span className="text-white font-extrabold text-sm">
-                              {lider.unidades} unid.
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400 block">Ganancia Neta</span>
-                            <span className="text-emerald-400 font-extrabold text-sm">
-                              {formatearMoneda(lider.ganancia)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                    <div className="flex items-center gap-3 text-xs sm:text-sm">
+                      <span className="font-extrabold text-sky-400">{item.unidades} unid.</span>
+                      <span className="text-slate-600">|</span>
+                      <span className="text-slate-300 font-semibold">{formatearMoneda(item.vendido)}</span>
+                      <span className="text-slate-600">|</span>
+                      <span className="font-extrabold text-emerald-400">+{formatearMoneda(item.ganancia)}</span>
+                    </div>
+                  </div>
+                  <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden">
+                    <div
+                      style={{ width: `${item.porcentajeBarra}%` }}
+                      className={`h-full rounded-full transition-all duration-700 ${
+                        item.esLider
+                          ? 'bg-gradient-to-r from-amber-400 to-orange-500'
+                          : 'bg-gradient-to-r from-sky-500 to-indigo-500'
+                      }`}
+                    />
                   </div>
                 </div>
-              )}
-
-              {/* Barras Horizontales Proporcionales (Top 10) */}
-              <div className="space-y-3.5">
-                {rankingProductos.items.map((item) => (
-                  <div
-                    key={item.codigo}
-                    className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700 transition"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs ${
-                            item.puesto === 1
-                              ? 'bg-amber-500 text-slate-950'
-                              : item.puesto === 2
-                              ? 'bg-slate-300 text-slate-950'
-                              : item.puesto === 3
-                              ? 'bg-orange-700 text-white'
-                              : 'bg-slate-800 text-slate-300'
-                          }`}
-                        >
-                          #{item.puesto}
-                        </span>
-                        <span className="px-2 py-0.5 rounded bg-slate-900 border border-amber-500/30 text-amber-400 font-mono font-bold text-xs">
-                          {item.codigo}
-                        </span>
-                        <span className="font-bold text-slate-100 text-sm">{item.nombre}</span>
-                      </div>
-
-                      <div className="flex items-center gap-4 text-xs sm:text-sm">
-                        <span className="font-extrabold text-sky-400">
-                          {item.unidades} {item.unidades === 1 ? 'unidad' : 'unidades'}
-                        </span>
-                        <span className="text-slate-600">|</span>
-                        <span className="text-slate-300 font-semibold">
-                          Vendido: {formatearMoneda(item.vendido)}
-                        </span>
-                        <span className="text-slate-600 hidden sm:inline">|</span>
-                        <span className="font-extrabold text-emerald-400 hidden sm:inline">
-                          +{formatearMoneda(item.ganancia)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Barra visual de progreso */}
-                    <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden">
-                      <div
-                        style={{ width: `${item.porcentajeBarra}%` }}
-                        className={`h-full rounded-full transition-all duration-700 ${
-                          item.esLider
-                            ? 'bg-gradient-to-r from-amber-400 to-orange-500'
-                            : criterioTop === 'UNIDADES'
-                            ? 'bg-gradient-to-r from-sky-500 to-indigo-500'
-                            : 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                        }`}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
+              ))}
+            </div>
           )}
         </div>
       </div>
 
-      {/* Tarjetas Resumen KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-        <div className="bg-[#111827] p-5 rounded-2xl shadow-lg border border-slate-800 border-l-4 border-l-amber-500">
-          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-            Total Vendido en el Día
-          </div>
-          <div className="text-3xl font-extrabold text-white mt-1">
-            {formatearMoneda(totalIngresos)}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">Ingresos totales del filtro actual</div>
-        </div>
-
-        <div className="bg-[#111827] p-5 rounded-2xl shadow-lg border border-slate-800 border-l-4 border-l-emerald-500">
-          <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-            Ganancia Neta del Día
-          </div>
-          <div
-            className={`text-3xl font-extrabold mt-1 ${
-              totalGanancia >= 0 ? 'text-emerald-400' : 'text-red-400'
-            }`}
-          >
-            {formatearMoneda(totalGanancia)}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">Diferencia entre precio real y costo</div>
-        </div>
-
-        <div className="bg-[#111827] p-5 rounded-2xl shadow-lg border border-slate-800 border-l-4 border-l-sky-500">
-          <div className="text-xs font-bold text-sky-400 uppercase tracking-wider">
-            Herramientas / Ítems Vendidos
-          </div>
-          <div className="text-3xl font-extrabold text-white mt-1">
-            {totalUnidades} <span className="text-base font-semibold text-slate-500">unid.</span>
-          </div>
-          <div className="text-xs text-slate-500 mt-1">En {ventas.length} operaciones</div>
-        </div>
-      </div>
-
-      {/* SECCIÓN DE GRÁFICAS DE BARRAS ANIMADAS */}
-      {!cargando && ventas.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Gráfica 1: Ventas vs Ganancia por Código de Herramienta */}
-          <div className="lg:col-span-2 bg-[#111827] p-6 rounded-2xl shadow-xl border border-slate-800">
-            <div className="mb-4">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                Rendimiento por Código de Herramienta (Bs)
-              </h2>
-              <p className="text-xs text-slate-400">
-                Comparativa animada entre monto vendido y ganancia neta por cada código
-              </p>
-            </div>
-
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={datosGraficaProductos}
-                  margin={{ top: 10, right: 20, left: 0, bottom: 5 }}
-                  barGap={8}
-                >
-                  <defs>
-                    <linearGradient id="gradVendido" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#f59e0b" stopOpacity={1} />
-                      <stop offset="100%" stopColor="#d97706" stopOpacity={0.75} />
-                    </linearGradient>
-                    <linearGradient id="gradGanancia" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
-                      <stop offset="100%" stopColor="#059669" stopOpacity={0.75} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                  <XAxis
-                    dataKey="codigo"
-                    stroke="#94a3b8"
-                    tick={{ fill: '#f8fafc', fontWeight: 'bold', fontSize: 12 }}
-                    axisLine={{ stroke: '#334155' }}
-                  />
-                  <YAxis
-                    stroke="#94a3b8"
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    cursor={{ fill: '#1e293b', opacity: 0.45 }}
-                    contentStyle={{
-                      backgroundColor: '#0f172a',
-                      borderColor: '#334155',
-                      borderRadius: '12px',
-                      color: '#f8fafc',
-                      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.6)',
-                    }}
-                    formatter={(value) => formatearMoneda(value)}
-                  />
-                  <Legend wrapperStyle={{ paddingTop: '12px', fontSize: '13px' }} />
-                  <Bar
-                    dataKey="Vendido"
-                    name="Total Vendido"
-                    fill="url(#gradVendido)"
-                    radius={[8, 8, 0, 0]}
-                    animationDuration={1100}
-                    animationEasing="ease-out"
-                  />
-                  <Bar
-                    dataKey="Ganancia"
-                    name="Ganancia Neta"
-                    fill="url(#gradGanancia)"
-                    radius={[8, 8, 0, 0]}
-                    animationDuration={1400}
-                    animationEasing="ease-out"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Gráfica 2: Comparativa Tienda 1 vs Tienda 2 */}
-          <div className="bg-[#111827] p-6 rounded-2xl shadow-xl border border-slate-800">
-            <div className="mb-4">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
-                Ingresos por Sucursal
-              </h2>
-              <p className="text-xs text-slate-400">Tienda 1 vs Tienda 2</p>
-            </div>
-
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={datosGraficaTiendas}
-                  margin={{ top: 10, right: 10, left: -10, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                  <XAxis
-                    dataKey="tienda"
-                    stroke="#94a3b8"
-                    tick={{ fill: '#f8fafc', fontWeight: 'bold', fontSize: 12 }}
-                    axisLine={{ stroke: '#334155' }}
-                  />
-                  <YAxis
-                    stroke="#94a3b8"
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    cursor={{ fill: '#1e293b', opacity: 0.45 }}
-                    contentStyle={{
-                      backgroundColor: '#0f172a',
-                      borderColor: '#334155',
-                      borderRadius: '12px',
-                      color: '#f8fafc',
-                    }}
-                    formatter={(value) => formatearMoneda(value)}
-                  />
-                  <Bar
-                    dataKey="Ingresos"
-                    name="Vendido (Bs)"
-                    radius={[10, 10, 0, 0]}
-                    animationDuration={1200}
-                    animationEasing="ease-out"
-                  >
-                    {datosGraficaTiendas.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={index === 0 ? '#38bdf8' : '#a78bfa'}
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tabla Detallada */}
+      {/* 4. CONSULTA DE FECHA EXACTA (HISTORIAL DIARIO) */}
       <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden">
-        <div className="p-5 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between">
-          <h2 className="font-bold text-white text-lg">Desglose Detallado de Ventas</h2>
-          <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-slate-800 text-amber-400 border border-slate-700">
-            {ventas.length} registros
-          </span>
+        <div className="p-5 border-b border-slate-800 bg-slate-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="font-bold text-white text-lg">Detalle de Ventas por Fecha Exacta</h2>
+            <p className="text-xs text-slate-400">
+              Total del día: <strong className="text-white">{formatearMoneda(totalIngresos)}</strong> | Ganancia:{' '}
+              <strong className="text-emerald-400">{formatearMoneda(totalGanancia)}</strong> ({totalUnidades} unid.)
+            </p>
+          </div>
+
+          <input
+            type="date"
+            value={fechaSeleccionada}
+            onChange={(e) => setFechaSeleccionada(e.target.value)}
+            className="px-3.5 py-2 bg-slate-950/90 border border-slate-700 rounded-xl text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-amber-500 [color-scheme:dark]"
+          />
         </div>
 
         {cargando ? (
           <div className="p-12 text-center text-slate-400 font-medium">Generando reporte...</div>
         ) : ventas.length === 0 ? (
-          <div className="p-12 text-center">
-            <p className="text-slate-300 font-semibold">Sin ventas en esta fecha</p>
-            <p className="text-sm text-slate-500 mt-1">
-              Prueba seleccionando otra fecha o cambia el filtro de sucursal.
-            </p>
-          </div>
+          <div className="p-12 text-center text-slate-400">Sin ventas en esta fecha.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -654,10 +509,8 @@ export default function PaginaReportes() {
                   <th className="py-3.5 px-4 font-bold">Hora</th>
                   <th className="py-3.5 px-4 font-bold">Sucursal</th>
                   <th className="py-3.5 px-4 font-bold">Código</th>
-                  <th className="py-3.5 px-4 font-bold">Producto / Potencia</th>
+                  <th className="py-3.5 px-4 font-bold">Producto</th>
                   <th className="py-3.5 px-4 font-bold text-center">Cant.</th>
-                  <th className="py-3.5 px-4 font-bold">P. Vendido</th>
-                  <th className="py-3.5 px-4 font-bold">Costo</th>
                   <th className="py-3.5 px-4 font-bold">Total</th>
                   <th className="py-3.5 px-4 font-bold text-emerald-400">Ganancia</th>
                 </tr>
@@ -686,18 +539,8 @@ export default function PaginaReportes() {
                       </td>
                       <td className="py-3.5 px-4 font-bold text-slate-100">{v.nombre_producto}</td>
                       <td className="py-3.5 px-4 text-center font-extrabold text-white">{v.cantidad}</td>
-                      <td className="py-3.5 px-4 font-bold text-slate-200">
-                        {formatearMoneda(v.precio_vendido)}
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-400">{formatearMoneda(v.costo_unitario)}</td>
-                      <td className="py-3.5 px-4 font-bold text-white">
-                        {formatearMoneda(v.total_venta)}
-                      </td>
-                      <td
-                        className={`py-3.5 px-4 font-extrabold ${
-                          parseFloat(v.ganancia_neta) >= 0 ? 'text-emerald-400' : 'text-red-400'
-                        }`}
-                      >
+                      <td className="py-3.5 px-4 font-bold text-white">{formatearMoneda(v.total_venta)}</td>
+                      <td className="py-3.5 px-4 font-extrabold text-emerald-400">
                         {formatearMoneda(v.ganancia_neta)}
                       </td>
                     </tr>
