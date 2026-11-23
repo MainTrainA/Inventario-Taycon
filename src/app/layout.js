@@ -1,17 +1,19 @@
 ﻿import './globals.css';
-import Navbar from '@/components/Navbar';
+import { AuthProvider } from '@/context/AuthContext';
+import AuthGuard from '@/components/AuthGuard';
 
 export const metadata = {
-  title: 'Taycon | Gestión de Inventario y Ventas',
-  description: 'Sistema de control de inventario, códigos personalizados y ventas diarias para sucursales Taycon',
+  title: 'TAYCON | Ferretería & Herramientas',
+  description: 'Sistema de Inventario, Punto de Venta y Reportes para TAYCON',
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="es" className="dark">
-      <body className="bg-[#090d16] text-slate-100 antialiased min-h-screen flex flex-col selection:bg-amber-500 selection:text-slate-950">
-        <Navbar />
-        <main className="flex-1">{children}</main>
+    <html lang="es">
+      <body className="bg-[#0a0f1c] text-slate-100 min-h-screen antialiased">
+        <AuthProvider>
+          <AuthGuard>{children}</AuthGuard>
+        </AuthProvider>
       </body>
     </html>
   );
