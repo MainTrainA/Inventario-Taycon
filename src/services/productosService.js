@@ -42,10 +42,12 @@ export const crearProductoConInventario = async (datosProducto, stockPorTienda) 
 
   if (prodError) throw prodError;
 
-  const registrosInventario = Object.entries(stockPorTienda).map(([tiendaId, cantidad]) => ({
-    tienda_id: tiendaId,
+  // Asegurar que el producto tenga fila de inventario en TODAS las tiendas (0 en la otra sucursal)
+  const todasLasTiendas = await obtenerTiendas();
+  const registrosInventario = todasLasTiendas.map((tienda) => ({
+    tienda_id: tienda.id,
     producto_id: producto.id,
-    stock: parseInt(cantidad, 10) || 0,
+    stock: parseInt(stockPorTienda[tienda.id], 10) || 0,
   }));
 
   const { error: invError } = await supabase

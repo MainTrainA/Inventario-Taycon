@@ -51,7 +51,7 @@ export default function PaginaProductos() {
 
   const handleEliminar = async (prod) => {
     const confirmar = window.confirm(
-      `¿Eliminar [${prod.codigo}] ${prod.nombre} del catálogo y de todas las tiendas?`
+      `¿Eliminar [${prod.codigo}] ${prod.nombre} del catálogo?`
     );
     if (!confirmar) return;
 
@@ -79,16 +79,17 @@ export default function PaginaProductos() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-          {esAdmin ? 'Inventario y Catálogo Maestro' : 'Control de Inventario de mi Sucursal'}
+          {esAdmin ? 'Inventario y Catálogo Maestro' : 'Inventario de mi Sucursal'}
         </h1>
         <p className="text-sm text-slate-400 mt-1">
           {esAdmin
             ? 'Administra tus códigos personalizados por potencia y controla las existencias de cada sucursal.'
-            : 'Controla los ingresos y existencias disponibles exclusivamente en tu tienda.'}
+            : 'Añade productos, controla el stock y administra las herramientas de tu tienda.'}
         </p>
       </div>
 
-      {esAdmin && <FormularioProducto tiendas={tiendas} onProductoCreado={cargarDatos} />}
+      {/* Formulario disponible para Admin (ambas tiendas) y para cada Tienda (solo su stock) */}
+      <FormularioProducto tiendas={tiendasVisibles} onProductoCreado={cargarDatos} />
 
       <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden">
         <div className="p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/60">
@@ -117,7 +118,7 @@ export default function PaginaProductos() {
           <div className="p-12 text-center">
             <p className="text-slate-300 font-semibold">No se encontraron herramientas</p>
             <p className="text-sm text-slate-500 mt-1">
-              Limpia el filtro de búsqueda para ver todo el catálogo.
+              Registra una nueva herramienta arriba o limpia el filtro de búsqueda.
             </p>
           </div>
         ) : (
@@ -139,7 +140,7 @@ export default function PaginaProductos() {
                       {t.nombre}
                     </th>
                   ))}
-                  {esAdmin && <th className="py-3.5 px-4 font-bold text-center">Acciones</th>}
+                  <th className="py-3.5 px-4 font-bold text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-sm">
@@ -204,17 +205,15 @@ export default function PaginaProductos() {
                         </td>
                       );
                     })}
-                    {esAdmin && (
-                      <td className="py-3.5 px-4 text-center">
-                        <button
-                          onClick={() => handleEliminar(prod)}
-                          title="Eliminar herramienta del catálogo"
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 bg-red-950/50 hover:bg-red-900/70 border border-red-800/60 transition cursor-pointer"
-                        >
-                          Eliminar
-                        </button>
-                      </td>
-                    )}
+                    <td className="py-3.5 px-4 text-center">
+                      <button
+                        onClick={() => handleEliminar(prod)}
+                        title="Eliminar herramienta del catálogo"
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 bg-red-950/50 hover:bg-red-900/70 border border-red-800/60 transition cursor-pointer"
+                      >
+                        Eliminar
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
