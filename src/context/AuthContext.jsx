@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabaseClient';
 
 const AuthContext = createContext({});
 
+const EMAIL_ADMIN = 'administrador@gmail.com';
+
 export function AuthProvider({ children }) {
   const [usuario, setUsuario] = useState(null);
   const [perfil, setPerfil] = useState(null);
@@ -15,6 +17,10 @@ export function AuthProvider({ children }) {
       setPerfil(null);
       return;
     }
+
+    const emailLimpio = (user.email || '').trim().toLowerCase();
+    const esCorreoAdmin = emailLimpio === EMAIL_ADMIN;
+
     const { data } = await supabase
       .from('perfiles')
       .select('*')
@@ -22,13 +28,17 @@ export function AuthProvider({ children }) {
       .single();
 
     if (data) {
-      setPerfil(data);
+      setPerfil({
+        ...data,
+        rol: esCorreoAdmin ? 'admin' : data.rol,
+        nombre: esCorreoAdmin ? 'Administrador' : data.nombre,
+      });
     } else {
       setPerfil({
         id: user.id,
         email: user.email,
-        nombre: user.email?.split('@')[0] || 'Usuario',
-        rol: 'vendedor',
+        nombre: esCorreoAdmin ? 'Administrador' : user.email?.split('@')[0] || 'Usuario',
+        rol: esCorreoAdmin ? 'admin' : 'vendedor',
         tienda_id: null,
       });
     }
@@ -61,8 +71,10 @@ export function AuthProvider({ children }) {
     setPerfil(null);
   };
 
-  const esAdmin = perfil?.rol === 'admin';
-  const tiendaAsignadaId = perfil?.tienda_id || null;
+  const esAdmin =
+    perfil?.rol === 'admin' ||
+    (usuario?.email || '').trim().toLowerCase() === EMAIL_ADMIN;
+  const tiendaAsignadaId = esAdmin ? null : perfil?.tienda_id || null;
 
   return (
     <AuthContext.Provider value={{ usuario, perfil, esAdmin, tiendaAsignadaId, cargandoAuth, cerrarSesion }}>
