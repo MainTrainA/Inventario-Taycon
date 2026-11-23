@@ -29,6 +29,7 @@ export function AuthProvider({ children }) {
         email: user.email,
         nombre: user.email?.split('@')[0] || 'Usuario',
         rol: 'vendedor',
+        tienda_id: null,
       });
     }
   };
@@ -61,9 +62,10 @@ export function AuthProvider({ children }) {
   };
 
   const esAdmin = perfil?.rol === 'admin';
+  const tiendaAsignadaId = perfil?.tienda_id || null;
 
   return (
-    <AuthContext.Provider value={{ usuario, perfil, esAdmin, cargandoAuth, cerrarSesion }}>
+    <AuthContext.Provider value={{ usuario, perfil, esAdmin, tiendaAsignadaId, cargandoAuth, cerrarSesion }}>
       {children}
     </AuthContext.Provider>
   );

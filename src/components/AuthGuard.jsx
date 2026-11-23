@@ -16,8 +16,8 @@ export default function AuthGuard({ children }) {
   const [error, setError] = useState('');
   const [ingresando, setIngresando] = useState(false);
 
-  const esRutaSoloAdmin =
-    pathname.startsWith('/productos') || pathname.startsWith('/reportes');
+  // Solo el Administrador puede entrar a Reportes
+  const esRutaSoloAdmin = pathname.startsWith('/reportes');
 
   useEffect(() => {
     if (!cargandoAuth && usuario && !esAdmin && esRutaSoloAdmin) {
@@ -77,7 +77,7 @@ export default function AuthGuard({ children }) {
               <input
                 type="email"
                 required
-                placeholder="usuario@gmail.com"
+                placeholder="tienda1@gmail.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-2.5 bg-slate-950/90 border border-slate-700 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500 transition"

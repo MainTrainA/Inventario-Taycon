@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import { obtenerTiendas, obtenerCatalogoConStock } from '@/services/productosService';
 import { registrarVenta, obtenerVentasDelDia } from '@/services/ventasService';
 import { formatearMoneda, formatearFechaHora } from '@/lib/formatters';
+import { useAuth } from '@/context/AuthContext';
 
 export default function PaginaVentas() {
+  const { esAdmin, tiendaAsignadaId } = useAuth();
   const [tiendas, setTiendas] = useState([]);
   const [tiendaSeleccionada, setTiendaSeleccionada] = useState('');
   const [productos, setProductos] = useState([]);
@@ -28,13 +30,16 @@ export default function PaginaVentas() {
       setTiendas(listaTiendas);
       setProductos(listaProductos);
 
-      const tiendaActiva = idTiendaFiltro || tiendaSeleccionada || listaTiendas[0]?.id || '';
-      if (!tiendaSeleccionada && tiendaActiva) {
-        setTiendaSeleccionada(tiendaActiva);
-      }
+      const tiendaActiva = !esAdmin && tiendaAsignadaId
+        ? tiendaAsignadaId
+        : idTiendaFiltro || tiendaSeleccionada || listaTiendas[0]?.id || '';
 
-      const listaVentas = await obtenerVentasDelDia(tiendaActiva);
-      setVentasHoy(listaVentas);
+      setTiendaSeleccionada(tiendaActiva);
+
+      if (tiendaActiva) {
+        const listaVentas = await obtenerVentasDelDia(tiendaActiva);
+        setVentasHoy(listaVentas);
+      }
     } catch (error) {
       console.error('Error cargando datos de ventas:', error);
     } finally {
@@ -44,9 +49,10 @@ export default function PaginaVentas() {
 
   useEffect(() => {
     cargarTodo();
-  }, []);
+  }, [esAdmin, tiendaAsignadaId]);
 
   const handleCambioTienda = async (nuevoId) => {
+    if (!esAdmin) return;
     setTiendaSeleccionada(nuevoId);
     setProductoSeleccionadoId('');
     setPrecioVendido('');
@@ -140,36 +146,43 @@ export default function PaginaVentas() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 bg-[#111827] p-1.5 rounded-2xl shadow-lg border border-slate-800">
-          {tiendas.map((t, idx) => {
-            const esActiva = t.id === tiendaSeleccionada;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => handleCambioTienda(t.id)}
-                className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer flex items-center gap-2 ${
-                  esActiva
-                    ? idx === 0
-                      ? 'bg-sky-500 text-slate-950 shadow-md shadow-sky-500/20'
-                      : 'bg-violet-500 text-white shadow-md shadow-violet-500/20'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    esActiva ? (idx === 0 ? 'bg-slate-950' : 'bg-white') : 'bg-slate-600'
+        {esAdmin ? (
+          <div className="flex items-center gap-2 bg-[#111827] p-1.5 rounded-2xl shadow-lg border border-slate-800">
+            {tiendas.map((t, idx) => {
+              const esActiva = t.id === tiendaSeleccionada;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => handleCambioTienda(t.id)}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                    esActiva
+                      ? idx === 0
+                        ? 'bg-sky-500 text-slate-950 shadow-md shadow-sky-500/20'
+                        : 'bg-violet-500 text-white shadow-md shadow-violet-500/20'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`}
-                ></span>
-                <span>{t.nombre}</span>
-              </button>
-            );
-          })}
-        </div>
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      esActiva ? (idx === 0 ? 'bg-slate-950' : 'bg-white') : 'bg-slate-600'
+                    }`}
+                  ></span>
+                  <span>{t.nombre}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="inline-flex items-center gap-2 bg-[#111827] px-4 py-2.5 rounded-2xl shadow-lg border border-sky-500/40 text-sky-400 font-bold text-sm">
+            <span className="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
+            <span>Sucursal asignada: {nombreTiendaActiva}</span>
+          </div>
+        )}
       </div>
 
       {/* Tarjetas KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+      <div className={`grid grid-cols-1 ${esAdmin ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-5 mb-8`}>
         <div className="bg-[#111827] p-5 rounded-2xl shadow-lg border border-slate-800 border-l-4 border-l-sky-500">
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
             Sucursal en Turno
@@ -190,19 +203,21 @@ export default function PaginaVentas() {
           <div className="text-xs text-slate-500 mt-1">Monto bruto cobrado en mostrador</div>
         </div>
 
-        <div className="bg-[#111827] p-5 rounded-2xl shadow-lg border border-slate-800 border-l-4 border-l-emerald-500">
-          <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-            Ganancia Neta Hoy
+        {esAdmin && (
+          <div className="bg-[#111827] p-5 rounded-2xl shadow-lg border border-slate-800 border-l-4 border-l-emerald-500">
+            <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+              Ganancia Neta Hoy
+            </div>
+            <div
+              className={`text-2xl font-extrabold mt-1 ${
+                gananciaNetaHoy >= 0 ? 'text-emerald-400' : 'text-red-400'
+              }`}
+            >
+              {formatearMoneda(gananciaNetaHoy)}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">Utilidad limpia después de costos</div>
           </div>
-          <div
-            className={`text-2xl font-extrabold mt-1 ${
-              gananciaNetaHoy >= 0 ? 'text-emerald-400' : 'text-red-400'
-            }`}
-          >
-            {formatearMoneda(gananciaNetaHoy)}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">Utilidad limpia después de costos</div>
-        </div>
+        )}
       </div>
 
       {/* Formulario de Venta */}
@@ -274,7 +289,11 @@ export default function PaginaVentas() {
           </div>
 
           {productoActual && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 p-5 bg-slate-950/70 rounded-2xl border border-slate-800 mb-6">
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-2 ${
+                esAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
+              } gap-5 p-5 bg-slate-950/70 rounded-2xl border border-slate-800 mb-6`}
+            >
               <div>
                 <span className="block text-xs font-bold text-slate-400 uppercase">
                   Stock en {nombreTiendaActiva}
@@ -284,14 +303,16 @@ export default function PaginaVentas() {
                 </span>
               </div>
 
-              <div>
-                <span className="block text-xs font-bold text-slate-400 uppercase">
-                  Costo Unitario
-                </span>
-                <span className="text-xl font-bold text-slate-300 mt-1 block">
-                  {formatearMoneda(productoActual.precio_costo)}
-                </span>
-              </div>
+              {esAdmin && (
+                <div>
+                  <span className="block text-xs font-bold text-slate-400 uppercase">
+                    Costo Unitario
+                  </span>
+                  <span className="text-xl font-bold text-slate-300 mt-1 block">
+                    {formatearMoneda(productoActual.precio_costo)}
+                  </span>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
@@ -334,21 +355,25 @@ export default function PaginaVentas() {
                     {formatearMoneda(totalCobrarEstimado)}
                   </span>
                 </div>
-                <span className="text-slate-700">|</span>
-                <div>
-                  <span className="text-slate-400">Ganancia neta: </span>
-                  <span
-                    className={`font-extrabold text-base ${
-                      gananciaTotalEstimada >= 0 ? 'text-emerald-400' : 'text-red-400'
-                    }`}
-                  >
-                    {formatearMoneda(gananciaTotalEstimada)}
-                  </span>
-                </div>
+                {esAdmin && (
+                  <>
+                    <span className="text-slate-700">|</span>
+                    <div>
+                      <span className="text-slate-400">Ganancia neta: </span>
+                      <span
+                        className={`font-extrabold text-base ${
+                          gananciaTotalEstimada >= 0 ? 'text-emerald-400' : 'text-red-400'
+                        }`}
+                      >
+                        {formatearMoneda(gananciaTotalEstimada)}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="text-xs text-slate-500">
-                Selecciona una herramienta arriba para calcular el total y la ganancia.
+                Selecciona una herramienta arriba para calcular el total a cobrar.
               </div>
             )}
 
@@ -391,7 +416,7 @@ export default function PaginaVentas() {
                   <th className="py-3.5 px-4 font-bold text-center">Cant.</th>
                   <th className="py-3.5 px-4 font-bold">Precio Vendido</th>
                   <th className="py-3.5 px-4 font-bold">Total Cobrado</th>
-                  <th className="py-3.5 px-4 font-bold text-emerald-400">Ganancia</th>
+                  {esAdmin && <th className="py-3.5 px-4 font-bold text-emerald-400">Ganancia</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-sm">
@@ -411,13 +436,15 @@ export default function PaginaVentas() {
                     <td className="py-3.5 px-4 font-bold text-white">
                       {formatearMoneda(v.total_venta)}
                     </td>
-                    <td
-                      className={`py-3.5 px-4 font-extrabold ${
-                        parseFloat(v.ganancia_neta) >= 0 ? 'text-emerald-400' : 'text-red-400'
-                      }`}
-                    >
-                      {formatearMoneda(v.ganancia_neta)}
-                    </td>
+                    {esAdmin && (
+                      <td
+                        className={`py-3.5 px-4 font-extrabold ${
+                          parseFloat(v.ganancia_neta) >= 0 ? 'text-emerald-400' : 'text-red-400'
+                        }`}
+                      >
+                        {formatearMoneda(v.ganancia_neta)}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

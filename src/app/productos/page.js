@@ -9,8 +9,10 @@ import {
 } from '@/services/productosService';
 import { formatearMoneda } from '@/lib/formatters';
 import FormularioProducto from '@/components/productos/FormularioProducto';
+import { useAuth } from '@/context/AuthContext';
 
 export default function PaginaProductos() {
+  const { esAdmin, tiendaAsignadaId } = useAuth();
   const [tiendas, setTiendas] = useState([]);
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
@@ -35,6 +37,11 @@ export default function PaginaProductos() {
   useEffect(() => {
     cargarDatos();
   }, []);
+
+  // El admin ve todas las tiendas; cada sucursal solo ve y controla la suya
+  const tiendasVisibles = esAdmin
+    ? tiendas
+    : tiendas.filter((t) => t.id === tiendaAsignadaId);
 
   const cambiarStock = async (inventarioId, stockActual, delta) => {
     const nuevoStock = Math.max(0, stockActual + delta);
@@ -72,19 +79,21 @@ export default function PaginaProductos() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-          Inventario y Catálogo Maestro
+          {esAdmin ? 'Inventario y Catálogo Maestro' : 'Control de Inventario de mi Sucursal'}
         </h1>
         <p className="text-sm text-slate-400 mt-1">
-          Administra tus códigos personalizados por potencia y controla las existencias de cada sucursal.
+          {esAdmin
+            ? 'Administra tus códigos personalizados por potencia y controla las existencias de cada sucursal.'
+            : 'Controla los ingresos y existencias disponibles exclusivamente en tu tienda.'}
         </p>
       </div>
 
-      <FormularioProducto tiendas={tiendas} onProductoCreado={cargarDatos} />
+      {esAdmin && <FormularioProducto tiendas={tiendas} onProductoCreado={cargarDatos} />}
 
       <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden">
         <div className="p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/60">
           <div className="flex items-center gap-2.5">
-            <h2 className="font-bold text-white text-lg">Existencias en Sucursales</h2>
+            <h2 className="font-bold text-white text-lg">Existencias Disponibles</h2>
             <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-slate-800 text-amber-400 border border-slate-700">
               {productosFiltrados.length} ítems
             </span>
@@ -108,7 +117,7 @@ export default function PaginaProductos() {
           <div className="p-12 text-center">
             <p className="text-slate-300 font-semibold">No se encontraron herramientas</p>
             <p className="text-sm text-slate-500 mt-1">
-              Registra una nueva herramienta arriba o limpia el filtro de búsqueda.
+              Limpia el filtro de búsqueda para ver todo el catálogo.
             </p>
           </div>
         ) : (
@@ -118,9 +127,9 @@ export default function PaginaProductos() {
                 <tr className="bg-slate-950/80 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-800">
                   <th className="py-3.5 px-4 font-bold">Código</th>
                   <th className="py-3.5 px-4 font-bold">Herramienta / Potencia</th>
-                  <th className="py-3.5 px-4 font-bold">Costo</th>
+                  {esAdmin && <th className="py-3.5 px-4 font-bold">Costo</th>}
                   <th className="py-3.5 px-4 font-bold">P. Sugerido</th>
-                  {tiendas.map((t, idx) => (
+                  {tiendasVisibles.map((t, idx) => (
                     <th
                       key={t.id}
                       className={`py-3.5 px-4 font-bold text-center ${
@@ -130,7 +139,7 @@ export default function PaginaProductos() {
                       {t.nombre}
                     </th>
                   ))}
-                  <th className="py-3.5 px-4 font-bold text-center">Acciones</th>
+                  {esAdmin && <th className="py-3.5 px-4 font-bold text-center">Acciones</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-sm">
@@ -149,13 +158,15 @@ export default function PaginaProductos() {
                         </span>
                       )}
                     </td>
-                    <td className="py-3.5 px-4 text-slate-400 font-medium">
-                      {formatearMoneda(prod.precio_costo)}
-                    </td>
+                    {esAdmin && (
+                      <td className="py-3.5 px-4 text-slate-400 font-medium">
+                        {formatearMoneda(prod.precio_costo)}
+                      </td>
+                    )}
                     <td className="py-3.5 px-4 font-bold text-white">
                       {formatearMoneda(prod.precio_venta_sugerido)}
                     </td>
-                    {tiendas.map((tienda) => {
+                    {tiendasVisibles.map((tienda) => {
                       const inv = prod.inventario_tienda?.find((i) => i.tienda_id === tienda.id);
                       const stock = inv ? inv.stock : 0;
                       const badgeColor =
@@ -193,15 +204,17 @@ export default function PaginaProductos() {
                         </td>
                       );
                     })}
-                    <td className="py-3.5 px-4 text-center">
-                      <button
-                        onClick={() => handleEliminar(prod)}
-                        title="Eliminar herramienta del catálogo"
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 bg-red-950/50 hover:bg-red-900/70 border border-red-800/60 transition cursor-pointer"
-                      >
-                        Eliminar
-                      </button>
-                    </td>
+                    {esAdmin && (
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          onClick={() => handleEliminar(prod)}
+                          title="Eliminar herramienta del catálogo"
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 bg-red-950/50 hover:bg-red-900/70 border border-red-800/60 transition cursor-pointer"
+                        >
+                          Eliminar
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

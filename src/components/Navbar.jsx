@@ -14,7 +14,10 @@ export default function Navbar() {
         { href: '/productos', label: 'Inventario y Catálogo', icon: '🛠️' },
         { href: '/reportes', label: 'Reporte Diario', icon: '📊' },
       ]
-    : [{ href: '/ventas', label: 'Punto de Venta', icon: '⚡' }];
+    : [
+        { href: '/ventas', label: 'Punto de Venta', icon: '⚡' },
+        { href: '/productos', label: 'Mi Inventario', icon: '🛠️' },
+      ];
 
   return (
     <header className="sticky top-0 z-40 bg-[#0d1322]/90 backdrop-blur-md text-white border-b border-slate-800/80 shadow-xl">
@@ -63,7 +66,7 @@ export default function Navbar() {
                     : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
                 }`}
               >
-                {esAdmin ? 'Admin' : perfil?.nombre || 'Vendedor'}
+                {esAdmin ? 'Admin' : perfil?.nombre || 'Tienda'}
               </span>
               <button
                 onClick={cerrarSesion}
