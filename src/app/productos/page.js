@@ -114,8 +114,10 @@ export default function PaginaProductos() {
 
   const handleCambioOrigen = (nuevoOrigenId) => {
     setTiendaOrigenId(nuevoOrigenId);
-    const otraTienda = tiendas.find((t) => t.id !== nuevoOrigenId);
-    if (otraTienda) setTiendaDestinoId(otraTienda.id);
+    if (nuevoOrigenId === tiendaDestinoId) {
+      const otraTienda = tiendas.find((t) => t.id !== nuevoOrigenId);
+      if (otraTienda) setTiendaDestinoId(otraTienda.id);
+    }
   };
 
   const invOrigenTraspaso = productoTraspaso?.inventario_tienda?.find(
@@ -607,10 +609,24 @@ export default function PaginaProductos() {
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">
                     Hacia (Destino)
                   </label>
-                  <div className="w-full px-3 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-emerald-400 font-bold text-sm">
-                    {tiendas.find((t) => t.id === tiendaDestinoId)?.nombre || 'Destino'} (
-                    {invDestinoTraspaso ? invDestinoTraspaso.stock : 0})
-                  </div>
+                  <select
+                    value={tiendaDestinoId}
+                    onChange={(e) => setTiendaDestinoId(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-950 border border-emerald-600/60 rounded-xl text-emerald-400 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    {tiendas
+                      .filter((t) => t.id !== tiendaOrigenId)
+                      .map((t) => {
+                        const inv = productoTraspaso.inventario_tienda?.find(
+                          (i) => i.tienda_id === t.id
+                        );
+                        return (
+                          <option key={t.id} value={t.id}>
+                            {t.nombre} ({inv ? inv.stock : 0})
+                          </option>
+                        );
+                      })}
+                  </select>
                 </div>
               </div>
 
@@ -652,3 +668,4 @@ export default function PaginaProductos() {
     </div>
   );
 }
+
