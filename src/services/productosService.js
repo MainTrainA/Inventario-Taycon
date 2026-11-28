@@ -21,6 +21,7 @@ export const obtenerCatalogoConStock = async () => {
         tiendas ( nombre )
       )
     `)
+    .eq('activo', true)
     .order('creado_en', { ascending: false });
 
   if (error) throw error;
@@ -36,6 +37,7 @@ export const crearProductoConInventario = async (datosProducto, stockPorTienda) 
       potencia_detalle: datosProducto.potencia_detalle.trim(),
       precio_costo: parseFloat(datosProducto.precio_costo),
       precio_venta_sugerido: parseFloat(datosProducto.precio_venta_sugerido),
+      activo: true,
     }])
     .select()
     .single();
@@ -86,18 +88,12 @@ export const actualizarStockTienda = async (inventarioId, nuevoStock) => {
   if (error) throw error;
 };
 
+// Borrado seguro (Archivar): mantiene intacto el historial de ventas y reportes
 export const eliminarProducto = async (productoId) => {
-  const { error: invError } = await supabase
-    .from('inventario_tienda')
-    .delete()
-    .eq('producto_id', productoId);
-
-  if (invError) throw invError;
-
-  const { error: prodError } = await supabase
+  const { error } = await supabase
     .from('productos')
-    .delete()
+    .update({ activo: false })
     .eq('id', productoId);
 
-  if (prodError) throw prodError;
+  if (error) throw error;
 };

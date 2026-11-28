@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { obtenerTiendas, obtenerCatalogoConStock } from '@/services/productosService';
-import { registrarVenta, obtenerVentasDelDia } from '@/services/ventasService';
+import { registrarVenta, obtenerVentasDelDia, anularVenta } from '@/services/ventasService';
 import { formatearMoneda, formatearFechaHora } from '@/lib/formatters';
 import { useAuth } from '@/context/AuthContext';
 
@@ -18,6 +18,7 @@ export default function PaginaVentas() {
   const [ventasHoy, setVentasHoy] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [anulandoId, setAnulandoId] = useState(null);
   const [mensaje, setMensaje] = useState({ tipo: '', texto: '' });
 
   const cargarTodo = async (idTiendaFiltro = null) => {
@@ -127,6 +128,28 @@ export default function PaginaVentas() {
       setMensaje({ tipo: 'error', texto: err.message });
     } finally {
       setGuardando(false);
+    }
+  };
+
+  const handleAnularVenta = async (venta) => {
+    const confirmar = window.confirm(
+      `¿Anular la venta de ${venta.cantidad}x [${venta.codigo_producto}] ${venta.nombre_producto}?\n\nLas ${venta.cantidad} unidades se devolverán automáticamente al stock.`
+    );
+    if (!confirmar) return;
+
+    setAnulandoId(venta.id);
+    setMensaje({ tipo: '', texto: '' });
+    try {
+      await anularVenta(venta);
+      setMensaje({
+        tipo: 'exito',
+        texto: `Venta anulada: se devolvieron ${venta.cantidad} unidad(es) de [${venta.codigo_producto}] al inventario.`,
+      });
+      await cargarTodo(tiendaSeleccionada);
+    } catch (err) {
+      setMensaje({ tipo: 'error', texto: 'Error al anular venta: ' + err.message });
+    } finally {
+      setAnulandoId(null);
     }
   };
 
@@ -417,6 +440,7 @@ export default function PaginaVentas() {
                   <th className="py-3.5 px-4 font-bold">Precio Vendido</th>
                   <th className="py-3.5 px-4 font-bold">Total Cobrado</th>
                   {esAdmin && <th className="py-3.5 px-4 font-bold text-emerald-400">Ganancia</th>}
+                  <th className="py-3.5 px-4 font-bold text-center">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 text-sm">
@@ -445,6 +469,16 @@ export default function PaginaVentas() {
                         {formatearMoneda(v.ganancia_neta)}
                       </td>
                     )}
+                    <td className="py-3.5 px-4 text-center">
+                      <button
+                        onClick={() => handleAnularVenta(v)}
+                        disabled={anulandoId === v.id}
+                        title="Anular venta y devolver stock"
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 bg-red-950/50 hover:bg-red-900/70 border border-red-800/60 transition cursor-pointer disabled:opacity-50"
+                      >
+                        {anulandoId === v.id ? 'Anulando...' : 'Anular'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

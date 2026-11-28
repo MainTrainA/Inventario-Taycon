@@ -77,3 +77,36 @@ export const obtenerVentasDelDia = async (tiendaId = null) => {
   if (error) throw error;
   return data;
 };
+
+export const anularVenta = async (venta) => {
+  // 1. Buscar el registro de inventario de ese producto en esa tienda
+  const { data: inv, error: invBuscarError } = await supabase
+    .from('inventario_tienda')
+    .select('id, stock')
+    .eq('tienda_id', venta.tienda_id)
+    .eq('producto_id', venta.producto_id)
+    .single();
+
+  if (invBuscarError && invBuscarError.code !== 'PGRST116') {
+    throw invBuscarError;
+  }
+
+  // 2. Devolver las unidades al stock de la sucursal
+  if (inv) {
+    const stockRestaurado = (parseInt(inv.stock, 10) || 0) + (parseInt(venta.cantidad, 10) || 0);
+    const { error: invUpdateError } = await supabase
+      .from('inventario_tienda')
+      .update({ stock: stockRestaurado })
+      .eq('id', inv.id);
+
+    if (invUpdateError) throw invUpdateError;
+  }
+
+  // 3. Eliminar la venta anulada
+  const { error: deleteError } = await supabase
+    .from('ventas')
+    .delete()
+    .eq('id', venta.id);
+
+  if (deleteError) throw deleteError;
+};
