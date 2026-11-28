@@ -21,6 +21,13 @@ export default function PaginaVentas() {
   const [anulandoId, setAnulandoId] = useState(null);
   const [mensaje, setMensaje] = useState({ tipo: '', texto: '' });
 
+  // Estados para Carrito, Vuelto y Recibo
+  const [carrito, setCarrito] = useState([]);
+  const [efectivoRecibido, setEfectivoRecibido] = useState('');
+  const [nombreCliente, setNombreCliente] = useState('');
+  const [reciboActual, setReciboActual] = useState(null);
+  const [copiado, setCopiado] = useState(false);
+
   const cargarTodo = async (idTiendaFiltro = null) => {
     setCargando(true);
     try {
@@ -57,6 +64,8 @@ export default function PaginaVentas() {
     setTiendaSeleccionada(nuevoId);
     setProductoSeleccionadoId('');
     setPrecioVendido('');
+    setCarrito([]);
+    setEfectivoRecibido('');
     setMensaje({ tipo: '', texto: '' });
     const listaVentas = await obtenerVentasDelDia(nuevoId);
     setVentasHoy(listaVentas);
@@ -75,7 +84,9 @@ export default function PaginaVentas() {
   const inventarioEnTienda = productoActual?.inventario_tienda?.find(
     (inv) => inv.tienda_id === tiendaSeleccionada
   );
-  const stockDisponible = inventarioEnTienda ? inventarioEnTienda.stock : 0;
+  const stockRealEnTienda = inventarioEnTienda ? inventarioEnTienda.stock : 0;
+  const cantidadEnCarrito = carrito.find((item) => item.producto.id === productoSeleccionadoId)?.cantidad || 0;
+  const stockDisponibleRestante = Math.max(0, stockRealEnTienda - cantidadEnCarrito);
 
   const handleSeleccionarProducto = (prodId) => {
     setProductoSeleccionadoId(prodId);
@@ -88,14 +99,7 @@ export default function PaginaVentas() {
     }
   };
 
-  const gananciaUnitariaEstimada =
-    productoActual && precioVendido !== ''
-      ? parseFloat(precioVendido) - parseFloat(productoActual.precio_costo)
-      : 0;
-  const gananciaTotalEstimada = gananciaUnitariaEstimada * (parseInt(cantidad, 10) || 0);
-  const totalCobrarEstimado = (parseFloat(precioVendido) || 0) * (parseInt(cantidad, 10) || 0);
-
-  const handleRegistrarVenta = async (e) => {
+  const handleAgregarAlCarrito = (e) => {
     e.preventDefault();
     setMensaje({ tipo: '', texto: '' });
 
@@ -104,31 +108,239 @@ export default function PaginaVentas() {
       return;
     }
 
-    setGuardando(true);
-    try {
-      await registrarVenta({
-        tiendaId: tiendaSeleccionada,
-        producto: productoActual,
-        inventarioId: inventarioEnTienda.id,
-        stockActual: stockDisponible,
-        cantidad,
-        precioVendido,
-      });
+    const cantNum = parseInt(cantidad, 10) || 0;
+    const precioNum = parseFloat(precioVendido);
 
+    if (cantNum <= 0 || isNaN(precioNum) || precioNum < 0) {
+      setMensaje({ tipo: 'error', texto: 'Verifica la cantidad y el precio de venta.' });
+      return;
+    }
+
+    if (cantNum > stockDisponibleRestante) {
+      setMensaje({
+        tipo: 'error',
+        texto: `Stock insuficiente. Solo quedan ${stockDisponibleRestante} unidad(es) disponibles para agregar.`,
+      });
+      return;
+    }
+
+    setCarrito((prev) => {
+      const existente = prev.find((i) => i.producto.id === productoActual.id);
+      if (existente) {
+        const nuevaCant = existente.cantidad + cantNum;
+        return prev.map((i) =>
+          i.producto.id === productoActual.id
+            ? {
+                ...i,
+                cantidad: nuevaCant,
+                precioVendido: precioNum,
+                subtotal: nuevaCant * precioNum,
+                ganancia: (precioNum - parseFloat(productoActual.precio_costo)) * nuevaCant,
+              }
+            : i
+        );
+      }
+      return [
+        ...prev,
+        {
+          producto: productoActual,
+          inventarioId: inventarioEnTienda.id,
+          stockActual: stockRealEnTienda,
+          cantidad: cantNum,
+          precioVendido: precioNum,
+          subtotal: cantNum * precioNum,
+          ganancia: (precioNum - parseFloat(productoActual.precio_costo)) * cantNum,
+        },
+      ];
+    });
+
+    setProductoSeleccionadoId('');
+    setPrecioVendido('');
+    setCantidad(1);
+    setBusqueda('');
+  };
+
+  const handleQuitarDelCarrito = (productoId) => {
+    setCarrito((prev) => prev.filter((item) => item.producto.id !== productoId));
+  };
+
+  const totalCarrito = carrito.reduce((acc, item) => acc + item.subtotal, 0);
+  const gananciaCarrito = carrito.reduce((acc, item) => acc + item.ganancia, 0);
+  const efectivoNum = parseFloat(efectivoRecibido) || 0;
+  const vuelto = efectivoRecibido !== '' ? efectivoNum - totalCarrito : 0;
+
+  const nombreTiendaActiva = tiendas.find((t) => t.id === tiendaSeleccionada)?.nombre || 'Sucursal';
+
+  const handleConfirmarVentaCarrito = async () => {
+    if (carrito.length === 0) return;
+    setMensaje({ tipo: '', texto: '' });
+    setGuardando(true);
+
+    try {
+      for (const item of carrito) {
+        await registrarVenta({
+          tiendaId: tiendaSeleccionada,
+          producto: item.producto,
+          inventarioId: item.inventarioId,
+          stockActual: item.stockActual,
+          cantidad: item.cantidad,
+          precioVendido: item.precioVendido,
+        });
+      }
+
+      const ahora = new Date();
+      const nuevoRecibo = {
+        nroNota: `TC-${String(ahora.getTime()).slice(-6)}`,
+        fecha: ahora.toLocaleString('es-BO', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        tienda: nombreTiendaActiva,
+        cliente: nombreCliente.trim() || 'Cliente Mostrador',
+        items: carrito.map((i) => ({
+          codigo: i.producto.codigo,
+          nombre: i.producto.nombre,
+          cantidad: i.cantidad,
+          precioUnitario: i.precioVendido,
+          subtotal: i.subtotal,
+        })),
+        total: totalCarrito,
+        efectivo: efectivoRecibido !== '' ? efectivoNum : null,
+        vuelto: efectivoRecibido !== '' ? vuelto : null,
+      };
+
+      setReciboActual(nuevoRecibo);
+      setCopiado(false);
+      setCarrito([]);
+      setEfectivoRecibido('');
+      setNombreCliente('');
       setMensaje({
         tipo: 'exito',
-        texto: `Venta registrada: ${cantidad}x [${productoActual.codigo}] por ${formatearMoneda(totalCobrarEstimado)}.`,
+        texto: `Venta confirmada (${nuevoRecibo.items.length} ítem/s) por ${formatearMoneda(nuevoRecibo.total)}.`,
       });
-      setProductoSeleccionadoId('');
-      setPrecioVendido('');
-      setCantidad(1);
-      setBusqueda('');
       await cargarTodo(tiendaSeleccionada);
     } catch (err) {
-      setMensaje({ tipo: 'error', texto: err.message });
+      setMensaje({ tipo: 'error', texto: 'Error al confirmar venta: ' + err.message });
     } finally {
       setGuardando(false);
     }
+  };
+
+  const generarTextoRecibo = (recibo) => {
+    const lineasItems = recibo.items
+      .map(
+        (i) =>
+          `• ${i.cantidad}x ${i.nombre} [${i.codigo}] — ${formatearMoneda(i.subtotal)}`
+      )
+      .join('\n');
+
+    let texto = `*TAYCON — Ferretería & Herramientas*\n`;
+    texto += `Nota de Venta: ${recibo.nroNota}\n`;
+    texto += `Sucursal: ${recibo.tienda}\n`;
+    texto += `Fecha: ${recibo.fecha}\n`;
+    texto += `Cliente: ${recibo.cliente}\n`;
+    texto += `----------------------------\n`;
+    texto += `${lineasItems}\n`;
+    texto += `----------------------------\n`;
+    texto += `*TOTAL A PAGAR: ${formatearMoneda(recibo.total)}*\n`;
+    if (recibo.efectivo !== null && recibo.vuelto >= 0) {
+      texto += `Efectivo: ${formatearMoneda(recibo.efectivo)}\n`;
+      texto += `Cambio/Vuelto: ${formatearMoneda(recibo.vuelto)}\n`;
+    }
+    texto += `\n¡Gracias por su preferencia!`;
+    return texto;
+  };
+
+  const handleEnviarWhatsApp = () => {
+    if (!reciboActual) return;
+    const texto = encodeURIComponent(generarTextoRecibo(reciboActual));
+    window.open(`https://wa.me/?text=${texto}`, '_blank');
+  };
+
+  const handleCopiarRecibo = async () => {
+    if (!reciboActual) return;
+    try {
+      await navigator.clipboard.writeText(generarTextoRecibo(reciboActual));
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2500);
+    } catch {
+      alert('No se pudo copiar automáticamente.');
+    }
+  };
+
+  const handleImprimirRecibo = () => {
+    if (!reciboActual) return;
+    const ventana = window.open('', '_blank', 'width=420,height=650');
+    if (!ventana) return;
+
+    const filas = reciboActual.items
+      .map(
+        (i) => `
+        <tr>
+          <td style="padding:6px 0; border-bottom:1px dashed #cbd5e1;">
+            <strong>${i.cantidad}x</strong> ${i.nombre}<br/>
+            <span style="font-size:11px; color:#64748b;">[${i.codigo}] · ${formatearMoneda(i.precioUnitario)} c/u</span>
+          </td>
+          <td style="padding:6px 0; text-align:right; font-weight:bold; border-bottom:1px dashed #cbd5e1;">
+            ${formatearMoneda(i.subtotal)}
+          </td>
+        </tr>`
+      )
+      .join('');
+
+    ventana.document.write(`
+      <html>
+        <head>
+          <title>Nota de Venta ${reciboActual.nroNota} - TAYCON</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #0f172a; padding: 20px; max-width: 340px; margin: 0 auto; }
+            .logo { width: 44px; height: 44px; background: #f59e0b; color: #0f172a; font-weight: 900; font-size: 22px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 6px; }
+            .center { text-align: center; }
+            table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+            .totales { border-top: 2px solid #0f172a; padding-top: 10px; font-size: 14px; }
+            .fila-total { display: flex; justify-content: space-between; margin-bottom: 4px; }
+          </style>
+        </head>
+        <body>
+          <div class="center">
+            <div class="logo">T</div>
+            <h2 style="margin:0; letter-spacing:1px;">TAYCON</h2>
+            <div style="font-size:11px; color:#475569; text-transform:uppercase;">Ferretería & Herramientas</div>
+            <div style="font-size:12px; margin-top:8px;"><strong>${reciboActual.tienda}</strong></div>
+            <div style="font-size:11px; color:#64748b;">Nota: ${reciboActual.nroNota} · ${reciboActual.fecha}</div>
+            <div style="font-size:12px; margin-top:4px;">Cliente: ${reciboActual.cliente}</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align:left; border-bottom:2px solid #0f172a; padding-bottom:4px;">Detalle</th>
+                <th style="text-align:right; border-bottom:2px solid #0f172a; padding-bottom:4px;">Importe</th>
+              </tr>
+            </thead>
+            <tbody>${filas}</tbody>
+          </table>
+          <div class="totales">
+            <div class="fila-total" style="font-size:16px; font-weight:bold;">
+              <span>TOTAL:</span>
+              <span>${formatearMoneda(reciboActual.total)}</span>
+            </div>
+            ${
+              reciboActual.efectivo !== null && reciboActual.vuelto >= 0
+                ? `<div class="fila-total"><span>Efectivo:</span><span>${formatearMoneda(reciboActual.efectivo)}</span></div>
+                   <div class="fila-total"><span>Cambio:</span><span>${formatearMoneda(reciboActual.vuelto)}</span></div>`
+                : ''
+            }
+          </div>
+          <p class="center" style="font-size:11px; color:#64748b; margin-top:20px;">¡Gracias por su compra!</p>
+        </body>
+      </html>
+    `);
+    ventana.document.close();
+    ventana.focus();
+    setTimeout(() => ventana.print(), 250);
   };
 
   const handleAnularVenta = async (venta) => {
@@ -155,7 +367,6 @@ export default function PaginaVentas() {
 
   const totalVendidoHoy = ventasHoy.reduce((acc, v) => acc + parseFloat(v.total_venta), 0);
   const gananciaNetaHoy = ventasHoy.reduce((acc, v) => acc + parseFloat(v.ganancia_neta), 0);
-  const nombreTiendaActiva = tiendas.find((t) => t.id === tiendaSeleccionada)?.nombre || 'Sucursal';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -165,7 +376,7 @@ export default function PaginaVentas() {
             Punto de Venta
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Registra salidas por mostrador con precio real y descuento automático de stock.
+            Carrito rápido, cálculo de vuelto automático y recibo digital para WhatsApp o impresión.
           </p>
         </div>
 
@@ -243,35 +454,36 @@ export default function PaginaVentas() {
         )}
       </div>
 
-      {/* Formulario de Venta */}
-      <form
-        onSubmit={handleRegistrarVenta}
-        className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden mb-8"
-      >
-        <div className="bg-slate-900/90 px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400"></span>
-            Nueva Operación de Venta — {nombreTiendaActiva}
-          </h2>
+      {mensaje.texto && (
+        <div
+          className={`mb-6 p-3.5 rounded-r-lg text-sm font-semibold border-l-4 ${
+            mensaje.tipo === 'exito'
+              ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
+              : 'bg-red-950/60 border-red-500 text-red-300'
+          }`}
+        >
+          {mensaje.texto}
         </div>
+      )}
 
-        <div className="p-6">
-          {mensaje.texto && (
-            <div
-              className={`mb-5 p-3.5 rounded-r-lg text-sm font-semibold border-l-4 ${
-                mensaje.tipo === 'exito'
-                  ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                  : 'bg-red-950/60 border-red-500 text-red-300'
-              }`}
-            >
-              {mensaje.texto}
-            </div>
-          )}
+      {/* Grid: Selector de Herramienta + Carrito de Venta */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
+        {/* Columna izquierda: Agregar al carrito */}
+        <form
+          onSubmit={handleAgregarAlCarrito}
+          className="lg:col-span-7 bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden"
+        >
+          <div className="bg-slate-900/90 px-6 py-4 border-b border-slate-800">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+              1. Agregar Herramientas — {nombreTiendaActiva}
+            </h2>
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
+          <div className="p-6 space-y-5">
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                1. Filtrar por Código o Nombre
+                Buscar por Código o Nombre
               </label>
               <div className="relative">
                 <span className="absolute left-3.5 top-2.5 text-slate-500 text-sm">🔍</span>
@@ -280,20 +492,20 @@ export default function PaginaVentas() {
                   placeholder="Ej: AMO-850W..."
                   value={busqueda}
                   onChange={(e) => setBusqueda(e.target.value)}
-                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-950/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-950/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
                 />
               </div>
             </div>
 
-            <div className="md:col-span-2">
+            <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                2. Seleccionar Herramienta *
+                Seleccionar Herramienta *
               </label>
               <select
                 required
                 value={productoSeleccionadoId}
                 onChange={(e) => handleSeleccionarProducto(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-950/80 border border-slate-700 rounded-xl font-medium text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                className="w-full px-3.5 py-2.5 bg-slate-950/80 border border-slate-700 rounded-xl font-medium text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
               >
                 <option value="">
                   -- Elige una herramienta ({productosFiltrados.length} en catálogo) --
@@ -309,107 +521,200 @@ export default function PaginaVentas() {
                 })}
               </select>
             </div>
-          </div>
 
-          {productoActual && (
-            <div
-              className={`grid grid-cols-1 sm:grid-cols-2 ${
-                esAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
-              } gap-5 p-5 bg-slate-950/70 rounded-2xl border border-slate-800 mb-6`}
-            >
-              <div>
-                <span className="block text-xs font-bold text-slate-400 uppercase">
-                  Stock en {nombreTiendaActiva}
-                </span>
-                <span className="text-xl font-extrabold text-white mt-1 block">
-                  {stockDisponible} <span className="text-sm font-medium text-slate-500">unid.</span>
-                </span>
-              </div>
-
-              {esAdmin && (
+            {productoActual && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-slate-950/70 rounded-xl border border-slate-800">
                 <div>
                   <span className="block text-xs font-bold text-slate-400 uppercase">
-                    Costo Unitario
+                    Disponible
                   </span>
-                  <span className="text-xl font-bold text-slate-300 mt-1 block">
-                    {formatearMoneda(productoActual.precio_costo)}
+                  <span className="text-xl font-extrabold text-white mt-1 block">
+                    {stockDisponibleRestante}{' '}
+                    <span className="text-xs font-medium text-slate-500">unid.</span>
                   </span>
+                  {esAdmin && (
+                    <span className="text-[11px] text-slate-400">
+                      Costo: {formatearMoneda(productoActual.precio_costo)}
+                    </span>
+                  )}
                 </div>
-              )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
-                  Cantidad *
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max={stockDisponible}
-                  required
-                  value={cantidad}
-                  onChange={(e) => setCantidad(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-slate-700 rounded-xl bg-slate-900 font-bold text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-emerald-400 uppercase mb-1">
-                  Precio Real Vendido c/u (Bs) *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  required
-                  value={precioVendido}
-                  onChange={(e) => setPrecioVendido(e.target.value)}
-                  className="w-full px-3.5 py-2 border-2 border-emerald-500/80 rounded-xl bg-slate-900 font-extrabold text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
-            {productoActual ? (
-              <div className="flex flex-wrap items-center gap-4 text-sm bg-slate-950/90 border border-slate-800 px-4 py-2.5 rounded-xl">
                 <div>
-                  <span className="text-slate-400">Total a cobrar: </span>
-                  <span className="font-extrabold text-white text-base">
-                    {formatearMoneda(totalCobrarEstimado)}
-                  </span>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
+                    Cantidad *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={stockDisponibleRestante}
+                    required
+                    value={cantidad}
+                    onChange={(e) => setCantidad(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 font-bold text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
                 </div>
-                {esAdmin && (
-                  <>
-                    <span className="text-slate-700">|</span>
-                    <div>
-                      <span className="text-slate-400">Ganancia neta: </span>
-                      <span
-                        className={`font-extrabold text-base ${
-                          gananciaTotalEstimada >= 0 ? 'text-emerald-400' : 'text-red-400'
-                        }`}
-                      >
-                        {formatearMoneda(gananciaTotalEstimada)}
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="text-xs text-slate-500">
-                Selecciona una herramienta arriba para calcular el total a cobrar.
+
+                <div>
+                  <label className="block text-xs font-bold text-emerald-400 uppercase mb-1">
+                    Precio c/u (Bs) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={precioVendido}
+                    onChange={(e) => setPrecioVendido(e.target.value)}
+                    className="w-full px-3 py-2 border-2 border-emerald-500/70 rounded-xl bg-slate-900 font-extrabold text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
               </div>
             )}
 
             <button
               type="submit"
-              disabled={guardando || !productoActual || stockDisponible <= 0}
-              className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold px-7 py-3 rounded-xl shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50 cursor-pointer"
+              disabled={!productoActual || stockDisponibleRestante <= 0}
+              className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold py-3 rounded-xl shadow-lg shadow-amber-500/20 transition-all disabled:opacity-40 cursor-pointer"
             >
-              {guardando ? 'Registrando venta...' : '✓ Confirmar Venta'}
+              ➕ Agregar al Carrito
             </button>
           </div>
+        </form>
+
+        {/* Columna derecha: Carrito + Cálculo de Vuelto + Confirmar */}
+        <div className="lg:col-span-5 bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden flex flex-col">
+          <div className="bg-slate-900/90 px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              2. Carrito y Cobro
+            </h2>
+            <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-slate-800 text-amber-400 border border-slate-700">
+              {carrito.length} {carrito.length === 1 ? 'ítem' : 'ítems'}
+            </span>
+          </div>
+
+          <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+            {carrito.length === 0 ? (
+              <div className="py-10 text-center text-slate-500 text-sm">
+                Agrega una o más herramientas desde la izquierda para armar la venta.
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                {carrito.map((item) => (
+                  <div
+                    key={item.producto.id}
+                    className="flex items-center justify-between gap-2 p-3 rounded-xl bg-slate-950/80 border border-slate-800"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-white truncate">
+                        {item.cantidad}x {item.producto.nombre}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        <span className="text-amber-400 font-mono">{item.producto.codigo}</span> ·{' '}
+                        {formatearMoneda(item.precioVendido)} c/u
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="font-extrabold text-white text-sm">
+                        {formatearMoneda(item.subtotal)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleQuitarDelCarrito(item.producto.id)}
+                        title="Quitar del carrito"
+                        className="w-7 h-7 rounded-lg bg-red-950/60 hover:bg-red-900 text-red-400 font-bold text-xs cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Resumen de Totales y Vuelto */}
+            <div className="pt-4 border-t border-slate-800 space-y-3">
+              <div className="flex items-center justify-between text-lg">
+                <span className="font-bold text-slate-300">Total a Cobrar:</span>
+                <span className="font-black text-white text-2xl">
+                  {formatearMoneda(totalCarrito)}
+                </span>
+              </div>
+
+              {esAdmin && carrito.length > 0 && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Ganancia neta estimada:</span>
+                  <span
+                    className={`font-bold ${
+                      gananciaCarrito >= 0 ? 'text-emerald-400' : 'text-red-400'
+                    }`}
+                  >
+                    {formatearMoneda(gananciaCarrito)}
+                  </span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+                    Efectivo Recibido (Bs)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Ej: 500"
+                    value={efectivoRecibido}
+                    onChange={(e) => setEfectivoRecibido(e.target.value)}
+                    disabled={carrito.length === 0}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-40"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+                    Cliente (Para Recibo)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Opcional"
+                    value={nombreCliente}
+                    onChange={(e) => setNombreCliente(e.target.value)}
+                    disabled={carrito.length === 0}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-40"
+                  />
+                </div>
+              </div>
+
+              {efectivoRecibido !== '' && carrito.length > 0 && (
+                <div
+                  className={`p-3 rounded-xl border flex items-center justify-between ${
+                    vuelto >= 0
+                      ? 'bg-emerald-950/50 border-emerald-700/60 text-emerald-300'
+                      : 'bg-red-950/50 border-red-700/60 text-red-300'
+                  }`}
+                >
+                  <span className="text-xs font-bold uppercase">
+                    {vuelto >= 0 ? 'Cambio / Vuelto:' : 'Falta completar:'}
+                  </span>
+                  <span className="text-lg font-black">
+                    {formatearMoneda(Math.abs(vuelto))}
+                  </span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleConfirmarVentaCarrito}
+                disabled={guardando || carrito.length === 0}
+                className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold py-3.5 rounded-xl shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-40 cursor-pointer"
+              >
+                {guardando ? 'Registrando venta...' : '✓ Confirmar Venta y Generar Recibo'}
+              </button>
+            </div>
+          </div>
         </div>
-      </form>
+      </div>
 
       {/* Tabla de Ventas de Hoy */}
       <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden">
@@ -486,6 +791,115 @@ export default function PaginaVentas() {
           </div>
         )}
       </div>
+
+      {/* Modal de Recibo Digital */}
+      {reciboActual && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#111827] border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+            <div className="p-5 bg-slate-900 border-b border-slate-800 text-center relative">
+              <button
+                type="button"
+                onClick={() => setReciboActual(null)}
+                className="absolute right-4 top-4 text-slate-400 hover:text-white font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+              <div className="w-12 h-12 mx-auto rounded-xl bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center font-black text-slate-950 text-xl mb-2">
+                T
+              </div>
+              <h3 className="text-xl font-extrabold text-white tracking-tight">TAYCON</h3>
+              <p className="text-[11px] uppercase tracking-widest text-amber-400 font-semibold">
+                Ferretería & Herramientas — Comprobante
+              </p>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="text-xs text-slate-400 space-y-1 bg-slate-950/70 p-3 rounded-xl border border-slate-800">
+                <div className="flex justify-between">
+                  <span>Nota Nro:</span>
+                  <strong className="text-white font-mono">{reciboActual.nroNota}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Sucursal:</span>
+                  <strong className="text-white">{reciboActual.tienda}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Fecha:</span>
+                  <span className="text-slate-200">{reciboActual.fecha}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Cliente:</span>
+                  <strong className="text-white">{reciboActual.cliente}</strong>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {reciboActual.items.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="flex justify-between text-sm border-b border-slate-800/80 pb-2"
+                  >
+                    <div>
+                      <div className="font-bold text-slate-100">
+                        {item.cantidad}x {item.nombre}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        [{item.codigo}] · {formatearMoneda(item.precioUnitario)} c/u
+                      </div>
+                    </div>
+                    <div className="font-extrabold text-white">
+                      {formatearMoneda(item.subtotal)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-2 border-t border-slate-700 space-y-1">
+                <div className="flex justify-between text-base font-black text-white">
+                  <span>TOTAL PAGADO:</span>
+                  <span className="text-emerald-400">{formatearMoneda(reciboActual.total)}</span>
+                </div>
+                {reciboActual.efectivo !== null && reciboActual.vuelto >= 0 && (
+                  <>
+                    <div className="flex justify-between text-xs text-slate-400">
+                      <span>Efectivo recibido:</span>
+                      <span>{formatearMoneda(reciboActual.efectivo)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-emerald-400 font-bold">
+                      <span>Cambio / Vuelto:</span>
+                      <span>{formatearMoneda(reciboActual.vuelto)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleEnviarWhatsApp}
+                  className="py-2.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer"
+                >
+                  📱 WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopiarRecibo}
+                  className="py-2.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-xs border border-slate-700 transition cursor-pointer"
+                >
+                  {copiado ? '✓ Copiado' : '📋 Copiar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImprimirRecibo}
+                  className="py-2.5 px-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition cursor-pointer"
+                >
+                  🖨️ Imprimir
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
