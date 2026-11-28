@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 import {
   obtenerFiados,
   crearFiado,
@@ -14,6 +15,11 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
   const [lista, setLista] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [tab, setTab] = useState('PENDIENTE'); // PENDIENTE | PAGADO | NUEVO
+
+  // Catálogo para búsqueda rápida
+  const [catalogo, setCatalogo] = useState([]);
+  const [busquedaProd, setBusquedaProd] = useState('');
+  const [itemsSeleccionados, setItemsSeleccionados] = useState([]);
 
   // Formulario nuevo fiado
   const [cliente, setCliente] = useState('');
@@ -40,9 +46,92 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
     }
   };
 
+  const cargarCatalogo = async () => {
+    try {
+      const { data, error: err } = await supabase
+        .from('productos')
+        .select('id, codigo, nombre, precio_venta_sugerido')
+        .eq('activo', true)
+        .order('nombre', { ascending: true });
+      if (!err && data) setCatalogo(data);
+    } catch (err) {
+      console.error('Error cargando catálogo:', err);
+    }
+  };
+
   useEffect(() => {
     if (tiendaId) cargar();
   }, [tiendaId]);
+
+  useEffect(() => {
+    if (abierto && catalogo.length === 0) {
+      cargarCatalogo();
+    }
+  }, [abierto]);
+
+  const productosFiltrados = useMemo(() => {
+    const q = busquedaProd.trim().toLowerCase();
+    if (!q) return [];
+    return catalogo.filter(
+      (p) =>
+        (p.codigo || '').toLowerCase().includes(q) ||
+        (p.nombre || '').toLowerCase().includes(q)
+    );
+  }, [catalogo, busquedaProd]);
+
+  const sincronizarDesdeItems = (nuevosItems) => {
+    setItemsSeleccionados(nuevosItems);
+    if (nuevosItems.length > 0) {
+      const suma = nuevosItems.reduce((acc, it) => acc + it.precio * it.cantidad, 0);
+      setMontoTotal(suma.toFixed(2));
+      setDetalle(nuevosItems.map((it) => `${it.cantidad}x ${it.nombre}`).join(' + '));
+    } else {
+      setMontoTotal('');
+      setDetalle('');
+    }
+  };
+
+  const agregarHerramienta = (prod) => {
+    const existe = itemsSeleccionados.find((i) => i.id === prod.id);
+    let nuevos;
+    if (existe) {
+      nuevos = itemsSeleccionados.map((i) =>
+        i.id === prod.id ? { ...i, cantidad: i.cantidad + 1 } : i
+      );
+    } else {
+      nuevos = [
+        ...itemsSeleccionados,
+        {
+          id: prod.id,
+          codigo: prod.codigo,
+          nombre: prod.nombre,
+          precio: parseFloat(prod.precio_venta_sugerido) || 0,
+          cantidad: 1,
+        },
+      ];
+    }
+    sincronizarDesdeItems(nuevos);
+    setBusquedaProd('');
+  };
+
+  const cambiarCantidad = (id, delta) => {
+    const nuevos = itemsSeleccionados
+      .map((i) => (i.id === id ? { ...i, cantidad: i.cantidad + delta } : i))
+      .filter((i) => i.cantidad > 0);
+    sincronizarDesdeItems(nuevos);
+  };
+
+  const cambiarPrecioItem = (id, nuevoPrecio) => {
+    const num = parseFloat(nuevoPrecio);
+    const nuevos = itemsSeleccionados.map((i) =>
+      i.id === id ? { ...i, precio: isNaN(num) ? 0 : num } : i
+    );
+    sincronizarDesdeItems(nuevos);
+  };
+
+  const quitarItem = (id) => {
+    sincronizarDesdeItems(itemsSeleccionados.filter((i) => i.id !== id));
+  };
 
   const { pendientes, pagados, totalPorCobrar } = useMemo(() => {
     const pend = lista.filter((f) => f.estado === 'PENDIENTE');
@@ -65,6 +154,8 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
       setDetalle('');
       setMontoTotal('');
       setAdelanto('');
+      setItemsSeleccionados([]);
+      setBusquedaProd('');
       setTab('PENDIENTE');
       await cargar();
     } catch (err) {
@@ -106,7 +197,7 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
 
       {abierto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl bg-[#111827] border border-slate-700 rounded-2xl shadow-2xl overflow-hidden max-h-[88vh] flex flex-col">
+          <div className="w-full max-w-3xl bg-[#111827] border border-slate-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="px-6 py-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-extrabold text-white">📒 Cuentas por Cobrar (Fiados / Adelantos)</h3>
@@ -187,8 +278,108 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
                     </div>
                   </div>
 
+                  {/* Buscador rápido de herramientas */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Herramienta / Detalle *</label>
+                    <label className="block text-xs font-bold text-amber-400 uppercase mb-1">
+                      🔍 Buscar y Agregar Herramientas (Puedes elegir varias)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Escribe código o nombre (Ej: AMO, Taladro, Disco)..."
+                      value={busquedaProd}
+                      onChange={(e) => setBusquedaProd(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-amber-500/50 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+
+                    {busquedaProd.trim().length > 0 && (
+                      <div className="mt-1.5 max-h-44 overflow-y-auto rounded-xl border border-amber-500/40 bg-slate-950 shadow-2xl divide-y divide-slate-800">
+                        {productosFiltrados.length === 0 ? (
+                          <div className="p-3 text-xs text-slate-400 text-center">
+                            No se encontró "{busquedaProd}" en el catálogo
+                          </div>
+                        ) : (
+                          productosFiltrados.slice(0, 8).map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => agregarHerramienta(p)}
+                              className="w-full px-3.5 py-2.5 text-left hover:bg-slate-800/80 transition flex items-center justify-between gap-2 cursor-pointer"
+                            >
+                              <div className="min-w-0">
+                                <span className="text-xs font-mono font-bold text-amber-400 mr-2">
+                                  [{p.codigo}]
+                                </span>
+                                <span className="text-sm font-bold text-white">{p.nombre}</span>
+                              </div>
+                              <div className="shrink-0 text-xs font-extrabold text-emerald-400">
+                                + {formatearMoneda(p.precio_venta_sugerido)}
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Lista de herramientas agregadas */}
+                  {itemsSeleccionados.length > 0 && (
+                    <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-3 space-y-2">
+                      <div className="text-[11px] font-bold text-slate-400 uppercase">
+                        Herramientas seleccionadas ({itemsSeleccionados.reduce((a, b) => a + b.cantidad, 0)} unid.)
+                      </div>
+                      {itemsSeleccionados.map((it) => (
+                        <div
+                          key={it.id}
+                          className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-slate-900/90 border border-slate-800 text-xs"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="font-mono text-amber-400 font-bold mr-1.5">[{it.codigo}]</span>
+                            <span className="font-bold text-white">{it.nombre}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center bg-slate-950 border border-slate-700 rounded-lg">
+                              <button
+                                type="button"
+                                onClick={() => cambiarCantidad(it.id, -1)}
+                                className="px-2 py-1 text-slate-300 hover:text-white font-bold cursor-pointer"
+                              >
+                                −
+                              </button>
+                              <span className="px-2 font-extrabold text-white">{it.cantidad}</span>
+                              <button
+                                type="button"
+                                onClick={() => cambiarCantidad(it.id, 1)}
+                                className="px-2 py-1 text-slate-300 hover:text-white font-bold cursor-pointer"
+                              >
+                                +
+                              </button>
+                            </div>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={it.precio}
+                              onChange={(e) => cambiarPrecioItem(it.id, e.target.value)}
+                              title="Precio unitario (Bs)"
+                              className="w-20 px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-emerald-400 font-bold text-right"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => quitarItem(it.id)}
+                              className="px-2 py-1 rounded-lg bg-red-950/60 text-red-400 hover:bg-red-900 font-bold cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
+                      Detalle (Se llena solo o puedes escribirlo manual) *
+                    </label>
                     <input
                       type="text"
                       required
@@ -288,7 +479,6 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
                         </div>
                       </div>
 
-                      {/* Historial de abonos */}
                       {Array.isArray(f.abonos) && f.abonos.length > 0 && (
                         <div className="pt-2 border-t border-slate-800/80 flex flex-wrap gap-1.5">
                           {f.abonos.map((ab, idx) => (
@@ -302,7 +492,6 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
                         </div>
                       )}
 
-                      {/* Acciones si está pendiente */}
                       {f.estado === 'PENDIENTE' && (
                         <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
                           {abonoActivoId === f.id ? (
