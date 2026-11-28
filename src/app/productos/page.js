@@ -5,6 +5,7 @@ import {
   obtenerTiendas,
   obtenerCatalogoConStock,
   actualizarStockTienda,
+  actualizarProducto,
   eliminarProducto,
 } from '@/services/productosService';
 import { formatearMoneda } from '@/lib/formatters';
@@ -17,6 +18,11 @@ export default function PaginaProductos() {
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [cargando, setCargando] = useState(true);
+
+  // Estados para el modal de edición
+  const [productoEditando, setProductoEditando] = useState(null);
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+  const [errorEdicion, setErrorEdicion] = useState('');
 
   const cargarDatos = async () => {
     setCargando(true);
@@ -38,7 +44,6 @@ export default function PaginaProductos() {
     cargarDatos();
   }, []);
 
-  // El admin ve todas las tiendas; cada sucursal solo ve y controla la suya
   const tiendasVisibles = esAdmin
     ? tiendas
     : tiendas.filter((t) => t.id === tiendaAsignadaId);
@@ -47,6 +52,44 @@ export default function PaginaProductos() {
     const nuevoStock = Math.max(0, stockActual + delta);
     await actualizarStockTienda(inventarioId, nuevoStock);
     cargarDatos();
+  };
+
+  const abrirEdicion = (prod) => {
+    setErrorEdicion('');
+    setProductoEditando({
+      id: prod.id,
+      codigo: prod.codigo,
+      nombre: prod.nombre,
+      potencia_detalle: prod.potencia_detalle || '',
+      precio_costo: prod.precio_costo,
+      precio_venta_sugerido: prod.precio_venta_sugerido,
+    });
+  };
+
+  const handleGuardarEdicion = async (e) => {
+    e.preventDefault();
+    setErrorEdicion('');
+    setGuardandoEdicion(true);
+
+    try {
+      await actualizarProducto(productoEditando.id, {
+        codigo: productoEditando.codigo,
+        nombre: productoEditando.nombre,
+        potencia_detalle: productoEditando.potencia_detalle,
+        precio_venta_sugerido: productoEditando.precio_venta_sugerido,
+        ...(esAdmin ? { precio_costo: productoEditando.precio_costo } : {}),
+      });
+      setProductoEditando(null);
+      await cargarDatos();
+    } catch (error) {
+      setErrorEdicion(
+        error.message?.includes('duplicate')
+          ? 'Ya existe otro producto con ese mismo código.'
+          : 'Error al guardar cambios: ' + error.message
+      );
+    } finally {
+      setGuardandoEdicion(false);
+    }
   };
 
   const handleEliminar = async (prod) => {
@@ -84,11 +127,10 @@ export default function PaginaProductos() {
         <p className="text-sm text-slate-400 mt-1">
           {esAdmin
             ? 'Administra tus códigos personalizados por potencia y controla las existencias de cada sucursal.'
-            : 'Añade productos, controla el stock y administra las herramientas de tu tienda.'}
+            : 'Añade, edita y controla el stock de las herramientas de tu tienda.'}
         </p>
       </div>
 
-      {/* Formulario disponible para Admin (ambas tiendas) y para cada Tienda (solo su stock) */}
       <FormularioProducto tiendas={tiendasVisibles} onProductoCreado={cargarDatos} />
 
       <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden">
@@ -206,13 +248,22 @@ export default function PaginaProductos() {
                       );
                     })}
                     <td className="py-3.5 px-4 text-center">
-                      <button
-                        onClick={() => handleEliminar(prod)}
-                        title="Eliminar herramienta del catálogo"
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 bg-red-950/50 hover:bg-red-900/70 border border-red-800/60 transition cursor-pointer"
-                      >
-                        Eliminar
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          onClick={() => abrirEdicion(prod)}
+                          title="Editar datos o precios"
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-amber-400 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-700/50 transition cursor-pointer"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => handleEliminar(prod)}
+                          title="Eliminar herramienta del catálogo"
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-400 bg-red-950/50 hover:bg-red-900/70 border border-red-800/60 transition cursor-pointer"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -221,6 +272,143 @@ export default function PaginaProductos() {
           </div>
         )}
       </div>
+
+      {/* Modal de Edición */}
+      {productoEditando && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#111827] border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
+              <h3 className="text-lg font-extrabold text-white">Editar Herramienta</h3>
+              <button
+                type="button"
+                onClick={() => setProductoEditando(null)}
+                className="text-slate-400 hover:text-white font-bold text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleGuardarEdicion} className="p-6 space-y-4">
+              {errorEdicion && (
+                <div className="p-3 rounded-lg bg-red-950/60 border-l-4 border-red-500 text-red-300 text-sm font-medium">
+                  {errorEdicion}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Código *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={productoEditando.codigo}
+                    onChange={(e) =>
+                      setProductoEditando({ ...productoEditando, codigo: e.target.value })
+                    }
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-amber-400 font-mono font-bold uppercase focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Potencia / Detalle
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: 850W - 4.5 pulgadas"
+                    value={productoEditando.potencia_detalle}
+                    onChange={(e) =>
+                      setProductoEditando({
+                        ...productoEditando,
+                        potencia_detalle: e.target.value,
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Nombre de la Herramienta *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={productoEditando.nombre}
+                  onChange={(e) =>
+                    setProductoEditando({ ...productoEditando, nombre: e.target.value })
+                  }
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className={`grid grid-cols-1 ${esAdmin ? 'sm:grid-cols-2' : ''} gap-4`}>
+                {esAdmin && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Precio de Costo (Bs) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      value={productoEditando.precio_costo}
+                      onChange={(e) =>
+                        setProductoEditando({
+                          ...productoEditando,
+                          precio_costo: e.target.value,
+                        })
+                      }
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1.5">
+                    Precio Sugerido (Bs) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={productoEditando.precio_venta_sugerido}
+                    onChange={(e) =>
+                      setProductoEditando({
+                        ...productoEditando,
+                        precio_venta_sugerido: e.target.value,
+                      })
+                    }
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-emerald-600/60 rounded-xl text-emerald-300 font-extrabold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setProductoEditando(null)}
+                  className="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardandoEdicion}
+                  className="px-5 py-2.5 rounded-xl text-sm font-extrabold text-slate-950 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 shadow-lg shadow-amber-500/20 transition cursor-pointer disabled:opacity-50"
+                >
+                  {guardandoEdicion ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

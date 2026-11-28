@@ -42,7 +42,6 @@ export const crearProductoConInventario = async (datosProducto, stockPorTienda) 
 
   if (prodError) throw prodError;
 
-  // Asegurar que el producto tenga fila de inventario en TODAS las tiendas (0 en la otra sucursal)
   const todasLasTiendas = await obtenerTiendas();
   const registrosInventario = todasLasTiendas.map((tienda) => ({
     tienda_id: tienda.id,
@@ -56,6 +55,26 @@ export const crearProductoConInventario = async (datosProducto, stockPorTienda) 
 
   if (invError) throw invError;
   return producto;
+};
+
+export const actualizarProducto = async (productoId, datos) => {
+  const payload = {
+    codigo: datos.codigo.trim().toUpperCase(),
+    nombre: datos.nombre.trim(),
+    potencia_detalle: (datos.potencia_detalle || '').trim(),
+    precio_venta_sugerido: parseFloat(datos.precio_venta_sugerido),
+  };
+
+  if (datos.precio_costo !== undefined && datos.precio_costo !== '') {
+    payload.precio_costo = parseFloat(datos.precio_costo);
+  }
+
+  const { error } = await supabase
+    .from('productos')
+    .update(payload)
+    .eq('id', productoId);
+
+  if (error) throw error;
 };
 
 export const actualizarStockTienda = async (inventarioId, nuevoStock) => {
