@@ -8,6 +8,8 @@ import { formatearMoneda, formatearFechaHora } from '@/lib/formatters';
 import { useAuth } from '@/context/AuthContext';
 import BotonGastoRapido from '@/components/gastos/BotonGastoRapido';
 import ResumenCierreCaja from '@/components/ventas/ResumenCierreCaja';
+import BotonProforma from '@/components/ventas/BotonProforma';
+import BotonProformasPendientes from '@/components/ventas/BotonProformasPendientes';
 
 export default function PaginaVentas() {
   const { esAdmin, tiendaAsignadaId } = useAuth();
@@ -385,6 +387,7 @@ export default function PaginaVentas() {
             Carrito rápido, cálculo de vuelto automático y recibo digital para WhatsApp o impresión.
           </p>
           <BotonGastoRapido tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} />
+          <BotonProformasPendientes tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} onCargarCarrito={(items) => setCarrito(items)} />
           <ResumenCierreCaja ventasHoy={ventasHoy} tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} />
         </div>
 
@@ -790,6 +793,7 @@ export default function PaginaVentas() {
               >
                 {guardando ? 'Registrando venta...' : '✓ Confirmar Venta y Generar Recibo'}
               </button>
+                <BotonProforma carrito={carrito} tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} />
             </div>
           </div>
         </div>
@@ -982,6 +986,7 @@ export default function PaginaVentas() {
     </div>
   );
 }
+
 
 
 
