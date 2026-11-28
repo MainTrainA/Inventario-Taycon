@@ -10,6 +10,7 @@ import BotonGastoRapido from '@/components/gastos/BotonGastoRapido';
 import ResumenCierreCaja from '@/components/ventas/ResumenCierreCaja';
 import BotonProforma from '@/components/ventas/BotonProforma';
 import BotonProformasPendientes from '@/components/ventas/BotonProformasPendientes';
+import BotonFiados from '@/components/ventas/BotonFiados';
 
 export default function PaginaVentas() {
   const { esAdmin, tiendaAsignadaId } = useAuth();
@@ -388,6 +389,7 @@ export default function PaginaVentas() {
           </p>
           <BotonGastoRapido tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} />
           <BotonProformasPendientes tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} onCargarCarrito={(items) => setCarrito(items)} />
+          <BotonFiados tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} />
           <ResumenCierreCaja ventasHoy={ventasHoy} tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} />
         </div>
 
@@ -986,6 +988,7 @@ export default function PaginaVentas() {
     </div>
   );
 }
+
 
 
 
