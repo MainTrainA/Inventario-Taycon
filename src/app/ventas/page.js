@@ -493,11 +493,53 @@ export default function PaginaVentas() {
                 <span className="absolute left-3.5 top-2.5 text-slate-500 text-sm">🔍</span>
                 <input
                   type="text"
-                  placeholder="Ej: AMO-850W..."
+                  placeholder="Ej: AMO-850W o Amoladora..."
                   value={busqueda}
                   onChange={(e) => setBusqueda(e.target.value)}
                   className="w-full pl-9 pr-3.5 py-2.5 bg-slate-950/80 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
                 />
+
+                {busqueda.trim().length > 0 && (
+                  <div className="mt-2 max-h-56 overflow-y-auto rounded-xl border border-amber-500/40 bg-slate-950 shadow-2xl divide-y divide-slate-800">
+                    {productosFiltrados.length === 0 ? (
+                      <div className="p-3 text-xs text-slate-400 text-center">
+                        No se encontró ninguna herramienta con "{busqueda}"
+                      </div>
+                    ) : (
+                      productosFiltrados.slice(0, 8).map((p) => {
+                        const inv = p.inventario_tienda?.find((i) => i.tienda_id === tiendaSeleccionada);
+                        const stk = inv ? inv.stock : 0;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            disabled={stk <= 0}
+                            onClick={() => {
+                              handleSeleccionarProducto(p.id);
+                              setBusqueda('');
+                            }}
+                            className="w-full px-3.5 py-2.5 text-left hover:bg-slate-800/80 transition flex items-center justify-between gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <div className="min-w-0">
+                              <span className="text-xs font-mono font-bold text-amber-400 mr-2">
+                                [{p.codigo}]
+                              </span>
+                              <span className="text-sm font-bold text-white">{p.nombre}</span>
+                            </div>
+                            <div className="shrink-0 text-xs flex items-center gap-2">
+                              <span className={stk > 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                                Stock: {stk}
+                              </span>
+                              <span className="text-slate-300 font-semibold">
+                                {formatearMoneda(p.precio_venta_sugerido)}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -907,5 +949,6 @@ export default function PaginaVentas() {
     </div>
   );
 }
+
 
 
