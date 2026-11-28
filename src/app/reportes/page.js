@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { obtenerTiendas } from '@/services/productosService';
 import { formatearMoneda, formatearFechaHora } from '@/lib/formatters';
 import { descargarCSV } from '@/lib/csvExport';
+import TablaAuditoria from '@/components/reportes/TablaAuditoria';
 import {
   ResponsiveContainer,
   BarChart,
@@ -601,6 +602,8 @@ export default function PaginaReportes() {
           </div>
         )}
       </div>
+      <TablaAuditoria />
     </div>
   );
 }
+

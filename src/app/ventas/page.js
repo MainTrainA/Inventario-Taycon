@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { obtenerTiendas, obtenerCatalogoConStock } from '@/services/productosService';
 import { registrarVenta, obtenerVentasDelDia, anularVenta } from '@/services/ventasService';
+import { registrarAuditoria } from '@/services/auditoriaService';
 import { formatearMoneda, formatearFechaHora } from '@/lib/formatters';
 import { useAuth } from '@/context/AuthContext';
 
@@ -353,6 +354,7 @@ export default function PaginaVentas() {
     setMensaje({ tipo: '', texto: '' });
     try {
       await anularVenta(venta);
+      await registrarAuditoria('ANULAR_VENTA', `Anuló venta de ${venta.cantidad}x [${venta.codigo_producto}] ${venta.nombre_producto} (Bs ${venta.total_venta}) en ${nombreTiendaActiva}`);
       setMensaje({
         tipo: 'exito',
         texto: `Venta anulada: se devolvieron ${venta.cantidad} unidad(es) de [${venta.codigo_producto}] al inventario.`,
@@ -903,3 +905,4 @@ export default function PaginaVentas() {
     </div>
   );
 }
+

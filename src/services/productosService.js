@@ -1,4 +1,5 @@
 ﻿import { supabase } from '@/lib/supabaseClient';
+import { registrarAuditoria } from '@/services/auditoriaService';
 
 export const obtenerTiendas = async () => {
   const { data, error } = await supabase
@@ -77,15 +78,31 @@ export const actualizarProducto = async (productoId, datos) => {
     .eq('id', productoId);
 
   if (error) throw error;
+
+  const detalleCosto = payload.precio_costo !== undefined ? ` | Costo: Bs ${payload.precio_costo}` : '';
+  await registrarAuditoria(
+    'EDITAR_PRODUCTO',
+    `Editó [${payload.codigo}] ${payload.nombre} — P. Sugerido: Bs ${payload.precio_venta_sugerido}${detalleCosto}`
+  );
 };
 
 export const actualizarStockTienda = async (inventarioId, nuevoStock) => {
-  const { error } = await supabase
+  const stockFinal = Math.max(0, parseInt(nuevoStock, 10) || 0);
+  const { data, error } = await supabase
     .from('inventario_tienda')
-    .update({ stock: Math.max(0, parseInt(nuevoStock, 10) || 0) })
-    .eq('id', inventarioId);
+    .update({ stock: stockFinal })
+    .eq('id', inventarioId)
+    .select('stock, productos(codigo, nombre), tiendas(nombre)')
+    .single();
 
   if (error) throw error;
+
+  if (data) {
+    await registrarAuditoria(
+      'AJUSTE_STOCK',
+      `Ajustó stock de [${data.productos?.codigo}] ${data.productos?.nombre} en ${data.tiendas?.nombre} → Nuevo stock: ${stockFinal}`
+    );
+  }
 };
 
 export const traspasarStock = async ({
@@ -101,34 +118,50 @@ export const traspasarStock = async ({
     throw new Error(`Stock insuficiente en la tienda de origen (disponible: ${stockOrigenActual}).`);
   }
 
-  const { error: errOrigen } = await supabase
+  const { data: dataOrigen, error: errOrigen } = await supabase
     .from('inventario_tienda')
     .update({ stock: stockOrigenActual - cant })
-    .eq('id', invOrigenId);
+    .eq('id', invOrigenId)
+    .select('productos(codigo, nombre), tiendas(nombre)')
+    .single();
 
   if (errOrigen) throw errOrigen;
 
-  const { error: errDestino } = await supabase
+  const { data: dataDestino, error: errDestino } = await supabase
     .from('inventario_tienda')
     .update({ stock: stockDestinoActual + cant })
-    .eq('id', invDestinoId);
+    .eq('id', invDestinoId)
+    .select('tiendas(nombre)')
+    .single();
 
   if (errDestino) {
-    // Revertir origen si falla destino
     await supabase
       .from('inventario_tienda')
       .update({ stock: stockOrigenActual })
       .eq('id', invOrigenId);
     throw errDestino;
   }
+
+  await registrarAuditoria(
+    'TRASPASO_STOCK',
+    `Traspasó ${cant} unid. de [${dataOrigen?.productos?.codigo}] ${dataOrigen?.productos?.nombre}: ${dataOrigen?.tiendas?.nombre} → ${dataDestino?.tiendas?.nombre}`
+  );
 };
 
-// Borrado seguro (Archivar): mantiene intacto el historial de ventas y reportes
 export const eliminarProducto = async (productoId) => {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('productos')
     .update({ activo: false })
-    .eq('id', productoId);
+    .eq('id', productoId)
+    .select('codigo, nombre')
+    .single();
 
   if (error) throw error;
+
+  if (data) {
+    await registrarAuditoria(
+      'ELIMINAR_PRODUCTO',
+      `Archivó/eliminó [${data.codigo}] ${data.nombre} del catálogo`
+    );
+  }
 };
