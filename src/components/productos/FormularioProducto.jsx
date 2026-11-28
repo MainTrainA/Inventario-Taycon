@@ -199,8 +199,10 @@ export default function FormularioProducto({ tiendas, onProductoCreado }) {
           </button>
         </div>
       </div>
-    </form>
+      <AvisoDuplicados codigo={codigo} nombre={nombre} />
+      </form>
   );
 }
+
 
 

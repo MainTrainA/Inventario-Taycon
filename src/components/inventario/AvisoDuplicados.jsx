@@ -23,7 +23,7 @@ export default function AvisoDuplicados({ codigo = '', nombre = '' }) {
     const cod = String(codigo || '').trim().toLowerCase();
     const nom = String(nombre || '').trim().toLowerCase();
 
-    if (cod.length < 2 && nom.length < 3) {
+    if (cod.length < 1 && nom.length < 2) {
       return { codigoExacto: null, similares: [] };
     }
 
@@ -35,18 +35,18 @@ export default function AvisoDuplicados({ codigo = '', nombre = '' }) {
       if (exacto && p.id === exacto.id) return false;
       const pCod = (p.codigo || '').toLowerCase();
       const pNom = (p.nombre || '').toLowerCase();
-      const matchCod = cod.length >= 2 && pCod.includes(cod);
-      const matchNom = nom.length >= 3 && pNom.includes(nom);
+      const matchCod = cod.length >= 1 && pCod.includes(cod);
+      const matchNom = nom.length >= 2 && pNom.includes(nom);
       return matchCod || matchNom;
     });
 
-    return { codigoExacto: exacto, similares: parecidos.slice(0, 5) };
+    return { codigoExacto: exacto, similares: parecidos.slice(0, 6) };
   }, [productos, codigo, nombre]);
 
   if (!codigoExacto && similares.length === 0) return null;
 
   return (
-    <div className="mt-3 space-y-2">
+    <div className="mt-4 space-y-2">
       {codigoExacto && (
         <div className="p-3 rounded-xl bg-red-950/70 border border-red-500/60 text-xs text-red-200">
           <span className="font-black text-red-400">⚠️ CÓDIGO DUPLICADO:</span>{' '}
