@@ -42,7 +42,7 @@ export default function PaginaVentas() {
         obtenerTiendas(),
         obtenerCatalogoConStock(),
       ]);
-      setTiendas(listaTiendas);
+      setTiendas((listaTiendas || []).filter((t) => t.tipo !== 'DEPOSITO'));
       setProductos(listaProductos);
 
       const tiendaActiva = !esAdmin && tiendaAsignadaId
@@ -988,6 +988,7 @@ export default function PaginaVentas() {
     </div>
   );
 }
+
 
 
 
