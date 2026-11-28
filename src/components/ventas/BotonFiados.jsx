@@ -32,6 +32,7 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
 
   // Abono rápido por fila
   const [abonoActivoId, setAbonoActivoId] = useState(null);
+  const [busquedaCliente, setBusquedaCliente] = useState('');
   const [montoAbono, setMontoAbono] = useState('');
 
   const cargar = async () => {
@@ -177,7 +178,12 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
     }
   };
 
-  const listaVisible = tab === 'PENDIENTE' ? pendientes : pagados;
+  const listaBase = tab === 'PENDIENTE' ? pendientes : pagados;
+  const listaVisible = listaBase.filter((f) => {
+    const q = busquedaCliente.trim().toLowerCase();
+    if (!q) return true;
+    return (f.cliente || '').toLowerCase().includes(q) || (f.telefono || '').toLowerCase().includes(q) || (f.detalle || '').toLowerCase().includes(q);
+  });
 
   return (
     <>
@@ -252,6 +258,26 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
                 </div>
               )}
 
+                            {tab !== 'NUEVO' && (
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="🔍 Buscar cliente, teléfono o herramienta..."
+                    value={busquedaCliente}
+                    onChange={(e) => setBusquedaCliente(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                  {busquedaCliente && (
+                    <button
+                      type="button"
+                      onClick={() => setBusquedaCliente('')}
+                      className="absolute right-3 top-2 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
               {tab === 'NUEVO' ? (
                 <form onSubmit={handleCrear} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -551,3 +577,4 @@ export default function BotonFiados({ tiendaId, nombreTienda }) {
     </>
   );
 }
+

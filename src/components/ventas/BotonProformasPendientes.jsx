@@ -12,6 +12,7 @@ export default function BotonProformasPendientes({ tiendaId, nombreTienda, onCar
   const [abierto, setAbierto] = useState(false);
   const [lista, setLista] = useState([]);
   const [cargando, setCargando] = useState(false);
+  const [busquedaProf, setBusquedaProf] = useState('');
 
   const cargar = async () => {
     setCargando(true);
@@ -83,6 +84,24 @@ export default function BotonProformasPendientes({ tiendaId, nombreTienda, onCar
             </div>
 
             <div className="p-5 overflow-y-auto space-y-3">
+                            <div className="relative">
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar proforma por nombre de cliente o teléfono..."
+                  value={busquedaProf}
+                  onChange={(e) => setBusquedaProf(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                {busquedaProf && (
+                  <button
+                    type="button"
+                    onClick={() => setBusquedaProf('')}
+                    className="absolute right-3 top-2 text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               {cargando ? (
                 <div className="py-8 text-center text-slate-400 text-sm">Cargando proformas...</div>
               ) : lista.length === 0 ? (
@@ -90,7 +109,7 @@ export default function BotonProformasPendientes({ tiendaId, nombreTienda, onCar
                   No hay proformas pendientes en esta sucursal.
                 </div>
               ) : (
-                lista.map((prof) => (
+                lista.filter((p) => { const q = busquedaProf.trim().toLowerCase(); if (!q) return true; return (p.cliente || '').toLowerCase().includes(q) || (p.telefono || '').toLowerCase().includes(q); }).map((prof) => (
                   <div
                     key={prof.id}
                     className="p-4 rounded-xl bg-slate-950/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
@@ -153,3 +172,4 @@ export default function BotonProformasPendientes({ tiendaId, nombreTienda, onCar
     </>
   );
 }
+
