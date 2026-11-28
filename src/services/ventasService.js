@@ -1,6 +1,7 @@
 ﻿import { supabase } from '@/lib/supabaseClient';
 
 export const registrarVenta = async ({
+  metodo_pago = 'EFECTIVO',
   tiendaId,
   producto,
   inventarioId,
@@ -37,7 +38,7 @@ export const registrarVenta = async ({
         costo_unitario: costoUnit,
         total_venta: totalVenta,
         ganancia_neta: gananciaNeta,
-      metodo_pago: datosVenta.metodo_pago || 'EFECTIVO',
+      metodo_pago: metodo_pago,
       },
     ])
     .select()
@@ -111,4 +112,6 @@ export const anularVenta = async (venta) => {
 
   if (deleteError) throw deleteError;
 };
+
+
 
