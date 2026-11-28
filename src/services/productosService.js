@@ -88,6 +88,41 @@ export const actualizarStockTienda = async (inventarioId, nuevoStock) => {
   if (error) throw error;
 };
 
+export const traspasarStock = async ({
+  invOrigenId,
+  stockOrigenActual,
+  invDestinoId,
+  stockDestinoActual,
+  cantidad,
+}) => {
+  const cant = parseInt(cantidad, 10) || 0;
+  if (cant <= 0) throw new Error('La cantidad a traspasar debe ser mayor a 0.');
+  if (cant > stockOrigenActual) {
+    throw new Error(`Stock insuficiente en la tienda de origen (disponible: ${stockOrigenActual}).`);
+  }
+
+  const { error: errOrigen } = await supabase
+    .from('inventario_tienda')
+    .update({ stock: stockOrigenActual - cant })
+    .eq('id', invOrigenId);
+
+  if (errOrigen) throw errOrigen;
+
+  const { error: errDestino } = await supabase
+    .from('inventario_tienda')
+    .update({ stock: stockDestinoActual + cant })
+    .eq('id', invDestinoId);
+
+  if (errDestino) {
+    // Revertir origen si falla destino
+    await supabase
+      .from('inventario_tienda')
+      .update({ stock: stockOrigenActual })
+      .eq('id', invOrigenId);
+    throw errDestino;
+  }
+};
+
 // Borrado seguro (Archivar): mantiene intacto el historial de ventas y reportes
 export const eliminarProducto = async (productoId) => {
   const { error } = await supabase

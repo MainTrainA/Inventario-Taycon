@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { obtenerTiendas } from '@/services/productosService';
 import { formatearMoneda, formatearFechaHora } from '@/lib/formatters';
+import { descargarCSV } from '@/lib/csvExport';
 import {
   ResponsiveContainer,
   BarChart,
@@ -13,7 +14,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  Cell,
 } from 'recharts';
 
 export default function PaginaReportes() {
@@ -26,7 +26,6 @@ export default function PaginaReportes() {
   const [ventas, setVentas] = useState([]);
   const [cargando, setCargando] = useState(true);
 
-  // Estados para Analítica por Período (Día / Semana / Mes / Año)
   const [periodoTop, setPeriodoTop] = useState('MES');
   const [criterioTop, setCriterioTop] = useState('UNIDADES');
   const [ventasPeriodo, setVentasPeriodo] = useState([]);
@@ -90,6 +89,7 @@ export default function PaginaReportes() {
           codigo_producto,
           nombre_producto,
           cantidad,
+          precio_vendido,
           total_venta,
           ganancia_neta,
           tienda_id,
@@ -97,7 +97,8 @@ export default function PaginaReportes() {
           tiendas ( nombre )
         `)
         .gte('fecha_venta', inicioPeriodo.toISOString())
-        .lte('fecha_venta', ahora.toISOString());
+        .lte('fecha_venta', ahora.toISOString())
+        .order('fecha_venta', { ascending: false });
 
       if (filtroTienda !== 'TODAS') {
         query = query.eq('tienda_id', filtroTienda);
@@ -121,7 +122,6 @@ export default function PaginaReportes() {
     cargarRankingPeriodo();
   }, [periodoTop, filtroTienda]);
 
-  // 1. Ganancia y Total Vendido por cada Tienda en el período seleccionado
   const resumenPorTienda = useMemo(() => {
     const mapa = {};
     tiendas.forEach((t) => {
@@ -141,7 +141,6 @@ export default function PaginaReportes() {
     return Object.values(mapa);
   }, [ventasPeriodo, tiendas]);
 
-  // 2. Evolución de ventas y Mejor Día / Mes del período
   const analisisTiempo = useMemo(() => {
     const mapa = {};
     const mesesNombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -180,7 +179,6 @@ export default function PaginaReportes() {
     return { serie, mejor };
   }, [ventasPeriodo, periodoTop]);
 
-  // 3. Ranking de Productos Más Vendidos (con soporte de empates)
   const rankingProductos = useMemo(() => {
     const mapa = {};
     ventasPeriodo.forEach((v) => {
@@ -236,15 +234,55 @@ export default function PaginaReportes() {
     ANIO: 'Este Año',
   };
 
+  const exportarVentasCSV = (listaVentas, nombreArchivo) => {
+    const encabezados = [
+      'Fecha y Hora',
+      'Sucursal',
+      'Codigo',
+      'Herramienta',
+      'Cantidad',
+      'Precio Vendido (Bs)',
+      'Total Cobrado (Bs)',
+      'Ganancia Neta (Bs)',
+    ];
+    const filas = listaVentas.map((v) => [
+      formatearFechaHora(v.fecha_venta),
+      v.tiendas?.nombre || 'Tienda',
+      v.codigo_producto,
+      v.nombre_producto,
+      v.cantidad,
+      v.precio_vendido || '',
+      v.total_venta,
+      v.ganancia_neta,
+    ]);
+    descargarCSV(nombreArchivo, encabezados, filas);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-          Reportes y Control de Ganancias
-        </h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Control total de ventas por tienda, mejores días/meses y productos más vendidos.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            Reportes y Control de Ganancias
+          </h1>
+          <p className="text-sm text-slate-400 mt-1">
+            Control total de ventas por tienda, mejores días/meses, ranking y respaldos en Excel.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            exportarVentasCSV(
+              ventasPeriodo,
+              `TAYCON-Ventas-${periodoTop}-${new Date().toLocaleDateString('en-CA')}`
+            )
+          }
+          disabled={ventasPeriodo.length === 0}
+          className="px-4 py-2.5 rounded-xl text-xs font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition cursor-pointer disabled:opacity-40 self-start sm:self-auto"
+        >
+          📥 Descargar Respaldo ({etiquetasPeriodo[periodoTop]}) .csv
+        </button>
       </div>
 
       {/* Filtros */}
@@ -295,7 +333,7 @@ export default function PaginaReportes() {
         </div>
       </div>
 
-      {/* 1. CUÁNTO VENDIÓ Y GANÓ CADA TIENDA EN EL PERÍODO */}
+      {/* 1. CUÁNTO VENDIÓ Y GANÓ CADA TIENDA */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
         {resumenPorTienda.map((t, idx) => (
           <div
@@ -319,7 +357,6 @@ export default function PaginaReportes() {
           </div>
         ))}
 
-        {/* Tarjeta: Mejor Día / Mes / Hora del período */}
         <div className="bg-[#111827] p-5 rounded-2xl shadow-lg border border-slate-800 border-l-4 border-l-amber-500">
           <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">
             {periodoTop === 'DIA'
@@ -343,7 +380,7 @@ export default function PaginaReportes() {
         </div>
       </div>
 
-      {/* 2. GRÁFICA: QUÉ DÍA / MES SE VENDIÓ MÁS */}
+      {/* 2. GRÁFICA */}
       <div className="bg-[#111827] p-6 rounded-2xl shadow-xl border border-slate-800 mb-8">
         <div className="mb-4">
           <h2 className="text-base font-bold text-white flex items-center gap-2">
@@ -351,7 +388,7 @@ export default function PaginaReportes() {
             Evolución de Ventas y Ganancias — {etiquetasPeriodo[periodoTop]}
           </h2>
           <p className="text-xs text-slate-400">
-            Compara rápidamente qué {periodoTop === 'DIA' ? 'hora' : periodoTop === 'ANIO' ? 'mes' : 'día'} tuvo mayor facturación y ganancia neta.
+            Compara qué {periodoTop === 'DIA' ? 'hora' : periodoTop === 'ANIO' ? 'mes' : 'día'} tuvo mayor facturación y ganancia neta.
           </p>
         </div>
 
@@ -393,7 +430,7 @@ export default function PaginaReportes() {
         )}
       </div>
 
-      {/* 3. RANKING DE PRODUCTOS MÁS VENDIDOS */}
+      {/* 3. RANKING */}
       <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden mb-8">
         <div className="p-6 border-b border-slate-800 bg-slate-900/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -478,7 +515,7 @@ export default function PaginaReportes() {
         </div>
       </div>
 
-      {/* 4. CONSULTA DE FECHA EXACTA (HISTORIAL DIARIO) */}
+      {/* 4. CONSULTA DE FECHA EXACTA */}
       <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden">
         <div className="p-5 border-b border-slate-800 bg-slate-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -489,12 +526,25 @@ export default function PaginaReportes() {
             </p>
           </div>
 
-          <input
-            type="date"
-            value={fechaSeleccionada}
-            onChange={(e) => setFechaSeleccionada(e.target.value)}
-            className="px-3.5 py-2 bg-slate-950/90 border border-slate-700 rounded-xl text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-amber-500 [color-scheme:dark]"
-          />
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() =>
+                exportarVentasCSV(ventas, `TAYCON-Ventas-Dia-${fechaSeleccionada}`)
+              }
+              disabled={ventas.length === 0}
+              className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-700/60 transition cursor-pointer disabled:opacity-40"
+            >
+              📥 Excel del Día
+            </button>
+
+            <input
+              type="date"
+              value={fechaSeleccionada}
+              onChange={(e) => setFechaSeleccionada(e.target.value)}
+              className="px-3.5 py-2 bg-slate-950/90 border border-slate-700 rounded-xl text-sm font-semibold text-white focus:outline-none focus:ring-2 focus:ring-amber-500 [color-scheme:dark]"
+            />
+          </div>
         </div>
 
         {cargando ? (
