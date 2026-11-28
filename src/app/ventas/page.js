@@ -6,6 +6,7 @@ import { registrarVenta, obtenerVentasDelDia, anularVenta } from '@/services/ven
 import { registrarAuditoria } from '@/services/auditoriaService';
 import { formatearMoneda, formatearFechaHora } from '@/lib/formatters';
 import { useAuth } from '@/context/AuthContext';
+import BotonGastoRapido from '@/components/gastos/BotonGastoRapido';
 
 export default function PaginaVentas() {
   const { esAdmin, tiendaAsignadaId } = useAuth();
@@ -380,6 +381,7 @@ export default function PaginaVentas() {
           <p className="text-sm text-slate-400 mt-1">
             Carrito rápido, cálculo de vuelto automático y recibo digital para WhatsApp o impresión.
           </p>
+          <BotonGastoRapido tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} />
         </div>
 
         {esAdmin ? (
@@ -905,4 +907,5 @@ export default function PaginaVentas() {
     </div>
   );
 }
+
 
