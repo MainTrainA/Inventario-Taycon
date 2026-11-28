@@ -37,6 +37,7 @@ export const registrarVenta = async ({
         costo_unitario: costoUnit,
         total_venta: totalVenta,
         ganancia_neta: gananciaNeta,
+      metodo_pago: datosVenta.metodo_pago || 'EFECTIVO',
       },
     ])
     .select()
@@ -110,3 +111,4 @@ export const anularVenta = async (venta) => {
 
   if (deleteError) throw deleteError;
 };
+

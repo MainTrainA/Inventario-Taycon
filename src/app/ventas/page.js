@@ -7,6 +7,7 @@ import { registrarAuditoria } from '@/services/auditoriaService';
 import { formatearMoneda, formatearFechaHora } from '@/lib/formatters';
 import { useAuth } from '@/context/AuthContext';
 import BotonGastoRapido from '@/components/gastos/BotonGastoRapido';
+import ResumenCierreCaja from '@/components/ventas/ResumenCierreCaja';
 
 export default function PaginaVentas() {
   const { esAdmin, tiendaAsignadaId } = useAuth();
@@ -14,6 +15,7 @@ export default function PaginaVentas() {
   const [tiendaSeleccionada, setTiendaSeleccionada] = useState('');
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState('');
+  const [metodoPago, setMetodoPago] = useState('EFECTIVO');
   const [productoSeleccionadoId, setProductoSeleccionadoId] = useState('');
   const [cantidad, setCantidad] = useState(1);
   const [precioVendido, setPrecioVendido] = useState('');
@@ -181,6 +183,7 @@ export default function PaginaVentas() {
     try {
       for (const item of carrito) {
         await registrarVenta({
+          metodo_pago: metodoPago,
           tiendaId: tiendaSeleccionada,
           producto: item.producto,
           inventarioId: item.inventarioId,
@@ -382,6 +385,7 @@ export default function PaginaVentas() {
             Carrito rápido, cálculo de vuelto automático y recibo digital para WhatsApp o impresión.
           </p>
           <BotonGastoRapido tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} />
+          <ResumenCierreCaja ventasHoy={ventasHoy} tiendaId={tiendaSeleccionada} nombreTienda={nombreTiendaActiva} />
         </div>
 
         {esAdmin ? (
@@ -749,7 +753,36 @@ export default function PaginaVentas() {
                 </div>
               )}
 
-              <button
+                              <div className="mb-3">
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Método de Pago
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMetodoPago('EFECTIVO')}
+                      className={`py-2 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                        metodoPago === 'EFECTIVO'
+                          ? 'bg-emerald-600 text-white border-emerald-400 shadow-md shadow-emerald-500/20'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      }`}
+                    >
+                      💵 Efectivo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMetodoPago('QR')}
+                      className={`py-2 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                        metodoPago === 'QR'
+                          ? 'bg-sky-600 text-white border-sky-400 shadow-md shadow-sky-500/20'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      }`}
+                    >
+                      📱 Transferencia QR
+                    </button>
+                  </div>
+                </div>
+<button
                 type="button"
                 onClick={handleConfirmarVentaCarrito}
                 disabled={guardando || carrito.length === 0}
@@ -949,6 +982,7 @@ export default function PaginaVentas() {
     </div>
   );
 }
+
 
 
 
