@@ -6,6 +6,7 @@ import { obtenerTiendas } from '@/services/productosService';
 import { formatearMoneda, formatearFechaHora } from '@/lib/formatters';
 import { descargarCSV } from '@/lib/csvExport';
 import TablaAuditoria from '@/components/reportes/TablaAuditoria';
+import GraficaVentas from '@/components/reportes/GraficaVentas';
 import PanelGastosReportes from '@/components/gastos/PanelGastosReportes';
 import {
   ResponsiveContainer,
@@ -383,54 +384,12 @@ export default function PaginaReportes() {
       </div>
 
       {/* 2. GRÁFICA */}
-      <div className="bg-[#111827] p-6 rounded-2xl shadow-xl border border-slate-800 mb-8">
-        <div className="mb-4">
-          <h2 className="text-base font-bold text-white flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-            Evolución de Ventas y Ganancias — {etiquetasPeriodo[periodoTop]}
-          </h2>
-          <p className="text-xs text-slate-400">
-            Compara qué {periodoTop === 'DIA' ? 'hora' : periodoTop === 'ANIO' ? 'mes' : 'día'} tuvo mayor facturación y ganancia neta.
-          </p>
-        </div>
-
-        {cargandoTop ? (
-          <div className="h-64 flex items-center justify-center text-slate-400 text-sm">
-            Cargando gráfica...
-          </div>
-        ) : analisisTiempo.serie.length === 0 ? (
-          <div className="h-48 flex items-center justify-center text-slate-500 text-sm">
-            No hay ventas registradas en {etiquetasPeriodo[periodoTop].toLowerCase()}.
-          </div>
-        ) : (
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={analisisTiempo.serie} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                <XAxis
-                  dataKey="etiqueta"
-                  stroke="#94a3b8"
-                  tick={{ fill: '#f8fafc', fontWeight: 'bold', fontSize: 12 }}
-                />
-                <YAxis stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  cursor={{ fill: '#1e293b', opacity: 0.45 }}
-                  contentStyle={{
-                    backgroundColor: '#0f172a',
-                    borderColor: '#334155',
-                    borderRadius: '12px',
-                    color: '#f8fafc',
-                  }}
-                  formatter={(value) => formatearMoneda(value)}
-                />
-                <Legend />
-                <Bar dataKey="Vendido" name="Total Vendido (Bs)" fill="#f59e0b" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="Ganancia" name="Ganancia Neta (Bs)" fill="#10b981" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
+      <GraficaVentas
+        serie={analisisTiempo.serie}
+        cargando={cargandoTop}
+        periodoTop={periodoTop}
+        etiquetaPeriodo={etiquetasPeriodo[periodoTop]}
+      />
 
       {/* 3. RANKING */}
       <div className="bg-[#111827] rounded-2xl shadow-xl border border-slate-800 overflow-hidden mb-8">
@@ -608,5 +567,6 @@ export default function PaginaReportes() {
     </div>
   );
 }
+
 
 
