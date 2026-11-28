@@ -259,7 +259,7 @@ export default function PaginaVentas() {
   const handleEnviarWhatsApp = () => {
     if (!reciboActual) return;
     const texto = encodeURIComponent(generarTextoRecibo(reciboActual));
-    window.open(`https://wa.me/?text=${texto}`, '_blank');
+    window.open(`https://wa.me/59165638679?text=${texto}`, '_blank');
   };
 
   const handleCopiarRecibo = async () => {
@@ -949,6 +949,7 @@ export default function PaginaVentas() {
     </div>
   );
 }
+
 
 
 
