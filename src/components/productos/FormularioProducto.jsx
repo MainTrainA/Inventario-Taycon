@@ -1,5 +1,4 @@
 ﻿'use client';
-import AvisoDuplicados from '@/components/inventario/AvisoDuplicados';
 
 import { useState } from 'react';
 import { crearProductoConInventario } from '@/services/productosService';
@@ -199,10 +198,10 @@ export default function FormularioProducto({ tiendas, onProductoCreado }) {
           </button>
         </div>
       </div>
-      <AvisoDuplicados codigo={codigo} nombre={nombre} />
       </form>
   );
 }
+
 
 
 
